@@ -1,10 +1,15 @@
 # DATABASE_SCHEMA.md — Schéma de Données Relationnel & Modèle Prisma
 
+> **Statut de ce document** : spécification de schéma approuvée (Gate 0, décisions D1–D12, D14). Le code Prisma ci-dessous n'a pas été appliqué à une base réelle ni migré — c'est une cible de conception, pas une implémentation vérifiée. Toute mention de contrainte nécessitant du SQL brut (hors syntaxe `schema.prisma` déclarative standard) est signalée explicitement.
+
 ## 1. Principes & Conventions de Modélisation
 - **Prisma & PostgreSQL** : Définition formelle sous forme de modèle `schema.prisma`.
-- **Typage Monétaire Strict** : Les montants financiers sont modélisés en `Decimal(14, 2)` ou en entiers de centimes (`BigInt`) pour garantir une précision absolue.
-- **Invariant de Stock Non-Négatif** : La table `StockMagasin` intègre une contrainte d'intégrité et un index unique garantissant l'impossibilité physique de stock négatif.
-- **Traçabilité & Extourne** : Les entités sensibles disposent d'un statut opérationnel (`BROUILLON`, `SOUMIS`, `APPROUVE`, `ENREGISTRE`, `EXTOURNE`) et d'un champ d'auto-référence `extourne_de_id`.
+- **Typage Monétaire Strict** : Les montants financiers sont modélisés exclusivement en `Decimal(14, 2)`. Les centimes entiers sont explicitement écartés — aucune ambiguïté résiduelle (cf. ADR-007, AGENTS.md §5). Aucune conformité comptable statutaire n'est revendiquée par ce typage ; il garantit uniquement l'exactitude arithmétique opérationnelle.
+- **Invariant de Stock Non-Négatif (Décision D8)** : La table `StockMagasin` doit porter une contrainte `CHECK (quantite_disponible >= 0)`. Cette contrainte **n'est pas exprimable dans la syntaxe déclarative standard de ce schéma Prisma** et doit être ajoutée via une migration SQL manuelle (`ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)`), documentée explicitement dans le fichier de migration correspondant — ne pas supposer qu'elle est générée automatiquement par `prisma migrate dev`. La décrémentation applicative suit un motif de mise à jour conditionnelle atomique (cf. `ARCHITECTURE.md` §4.2), pas un verrou pessimiste explicite.
+- **Pas de réservation de stock en v1 (Décision D9)** : aucun champ `quantite_reservee` n'existe dans ce schéma. La disponibilité se lit directement sur `quantite_disponible`.
+- **Traçabilité & Extourne** : Les entités sensibles disposent d'un statut opérationnel (`BROUILLON`, `SOUMIS`, `APPROUVE`, `ENREGISTRE`, `EXTOURNE`) et d'un champ d'auto-référence `extourne_de_id`. Ce champ porte une contrainte d'unicité partielle (`WHERE extourne_de_id IS NOT NULL`) sur chaque modèle qui le porte — également hors syntaxe déclarative standard de Prisma pour une unicité partielle, donc à ajouter via migration SQL manuelle (`CREATE UNIQUE INDEX ... WHERE extourne_de_id IS NOT NULL`).
+- **Isolation Multi-Tenant (Décision D10)** : chaque table listée ci-dessous porte `organization_id`. Cette colonne est la base de la couche applicative ET de la politique PostgreSQL Row-Level Security prévue en défense en profondeur (cf. `ARCHITECTURE.md` §4.1) — l'activation effective des policies RLS reste un livrable d'implémentation distinct.
+- **Idempotence (voir `ARCHITECTURE.md` §6)** : `BonSortie`, `Pointage`, `Depense`, `AcompteOuvrier` portent un champ `idempotency_key` avec contrainte d'unicité `(organization_id, idempotency_key)`.
 
 ---
 
@@ -180,28 +185,37 @@ model Chantier {
 
 model LotTravaux {
   id                    String                 @id @default(uuid())
+  organization_id       String
   chantier_id           String
   code_lot              String                 // ex: 'LOT-01'
   designation           String                 // ex: 'Gros Œuvre'
   budget_prevu_ht       Decimal                @default(0.00) @db.Decimal(14, 2)
 
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
   taches                TacheChantier[]
+
+  @@index([organization_id, chantier_id])
 }
 
 model TacheChantier {
   id                    String                 @id @default(uuid())
+  organization_id       String
   lot_id                String
   designation           String
   avancement_pourcent   Int                    @default(0)
   date_debut            DateTime?
   date_fin              DateTime?
 
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   lot                   LotTravaux             @relation(fields: [lot_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, lot_id])
 }
 
 model JournalChantier {
   id                    String                 @id @default(uuid())
+  organization_id       String
   chantier_id           String
   date_journal          DateTime               @db.Date
   meteo                 String?                // 'Ensoleillé', 'Pluie', 'Vent fort'
@@ -213,19 +227,25 @@ model JournalChantier {
   photos                PhotoChantier[]
   created_at            DateTime               @default(now())
 
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
 
   @@unique([chantier_id, date_journal])
+  @@index([organization_id])
 }
 
 model PhotoChantier {
   id                    String                 @id @default(uuid())
+  organization_id       String
   journal_id            String
   url                   String
   description           String?
   created_at            DateTime               @default(now())
 
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   journal               JournalChantier        @relation(fields: [journal_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, journal_id])
 }
 
 // -------------------------------------------------------------
@@ -273,40 +293,75 @@ model Devis {
 
 model DevisLigne {
   id                    String                 @id @default(uuid())
+  organization_id       String
   devis_id              String
   numero_prix           String                 // '1.01'
   designation           String
   unite                 String                 // 'm²', 'm³', 'ml', 'kg', 'u', 'forfait'
   quantite              Decimal                @db.Decimal(12, 3)
   prix_unitaire_ht      Decimal                @db.Decimal(14, 2)
+  taux_tva              Decimal                @default(20.00) @db.Decimal(5, 2)
   total_ligne_ht        Decimal                @db.Decimal(14, 2)
 
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   devis                 Devis                  @relation(fields: [devis_id], references: [id], onDelete: Cascade)
+  lignesDecompte        DecompteLigne[]
+
+  @@index([organization_id, devis_id])
 }
 
 model Decompte {
   id                    String                 @id @default(uuid())
   organization_id       String
   chantier_id           String
-  numero_decompte       Int                    // Décompte N° 1, 2, 3...
-  type_decompte         String                 @default("PROVISOIRE") // 'PROVISOIRE', 'DEFINITIF'
+  numero_decompte       Int                    // Décompte N° 1, 2, 3... — ordre de dépendance pour l'extourne (cf. ARCHITECTURE.md §4.3)
+  type_decompte         String                 @default("PROVISOIRE") // 'PROVISOIRE', 'DEFINITIF', 'LEVEE_RETENUE' (cf. Décision D7)
   periode_debut         DateTime               @db.Date
   periode_fin           DateTime               @db.Date
   cumul_precedent_ht    Decimal                @default(0.00) @db.Decimal(14, 2)
   cumul_mois_ht         Decimal                @default(0.00) @db.Decimal(14, 2)
   cumul_total_ht        Decimal                @default(0.00) @db.Decimal(14, 2)
   retenue_garantie_ht   Decimal                @default(0.00) @db.Decimal(14, 2)
+  retenue_garantie_levee_ht Decimal            @default(0.00) @db.Decimal(14, 2) // Cumul des montants déjà libérés via décomptes LEVEE_RETENUE
   montant_net_ht        Decimal                @default(0.00) @db.Decimal(14, 2)
-  montant_tva           Decimal                @default(0.00) @db.Decimal(14, 2)
+  montant_tva           Decimal                @default(0.00) @db.Decimal(14, 2) // Somme des montant_tva_ligne de DecompteLigne (cf. §Précision & Arrondi)
   montant_net_ttc       Decimal                @default(0.00) @db.Decimal(14, 2)
   statut                StatutOperationnel     @default(BROUILLON)
-  extourne_de_id        String?                // Référence si extourne
+  extourne_de_id        String?                // Référence si extourne — unique partiel (WHERE NOT NULL), migration SQL manuelle requise
+  piece_jointe_pv_url   String?                // PV de réception/levée de retenue justifiant un LEVEE_RETENUE (Décision D7)
   date_validation       DateTime?
   created_at            DateTime               @default(now())
 
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+  lignes                DecompteLigne[]
 
   @@unique([chantier_id, numero_decompte])
+}
+
+model DecompteLigne {
+  // Décision D3 : snapshot historique immuable — ces valeurs sont copiées au moment de la génération
+  // du décompte et ne sont JAMAIS recalculées si la DevisLigne source est modifiée ultérieurement.
+  id                        String             @id @default(uuid())
+  organization_id           String
+  decompte_id               String
+  devis_ligne_id             String
+  numero_prix               String             // snapshot de DevisLigne.numero_prix
+  designation                String             // snapshot
+  unite                      String             // snapshot
+  quantite_cumulee_precedente Decimal           @default(0.00) @db.Decimal(12, 3)
+  quantite_cumulee_actuelle  Decimal            @default(0.00) @db.Decimal(12, 3)
+  quantite_mois              Decimal            @default(0.00) @db.Decimal(12, 3)
+  prix_unitaire_ht           Decimal            @db.Decimal(14, 2) // snapshot — jamais relu depuis DevisLigne après génération
+  taux_tva                   Decimal            @db.Decimal(5, 2)  // snapshot — permet les taux mixtes 20%/14% sur un même décompte
+  montant_ligne_ht           Decimal            @default(0.00) @db.Decimal(14, 2)
+  montant_tva_ligne          Decimal            @default(0.00) @db.Decimal(14, 2)
+
+  organization               Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  decompte                   Decompte           @relation(fields: [decompte_id], references: [id], onDelete: Cascade)
+  devisLigne                 DevisLigne         @relation(fields: [devis_ligne_id], references: [id])
+
+  @@index([organization_id, decompte_id])
 }
 
 // -------------------------------------------------------------
@@ -348,14 +403,18 @@ model Magasin {
 }
 
 model StockMagasin {
+  // Décision D9 : pas de champ de réservation en v1 — la disponibilité se lit directement ici.
+  // Décision D8 : quantite_disponible >= 0 imposé par CHECK en base (migration SQL manuelle,
+  // hors syntaxe déclarative Prisma standard) ET par mise à jour conditionnelle atomique côté
+  // application (cf. ARCHITECTURE.md §4.2). Aucun verrou explicite FOR UPDATE n'est utilisé.
   id                    String                 @id @default(uuid())
   organization_id       String
   magasin_id            String
   article_id            String
   quantite_disponible   Decimal                @default(0.00) @db.Decimal(12, 3)
-  quantite_reservee     Decimal                @default(0.00) @db.Decimal(12, 3)
   updated_at            DateTime               @updatedAt
 
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   magasin               Magasin                @relation(fields: [magasin_id], references: [id], onDelete: Cascade)
   article               Article                @relation(fields: [article_id], references: [id], onDelete: Cascade)
 

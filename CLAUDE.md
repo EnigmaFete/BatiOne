@@ -71,10 +71,11 @@ npm run test:cov
 
 ## Règles d'Architecture Inviolables
 
-1. **Périmètre Financier** : Suivi des coûts réels de chantier vs budget (Job Costing). Pas de comptabilité générale statutaire.
-2. **Gestion du Stock** : Sorties supérieures à la quantité disponible strictement **interdites** (`STOCK_INSUFFISANT`). Pas de stock négatif.
+1. **Périmètre Financier** : Suivi des coûts réels de chantier vs budget (Job Costing). Pas de comptabilité générale statutaire — aucune conformité comptable légale n'est revendiquée.
+2. **Gestion du Stock** : Sorties supérieures à la quantité disponible strictement **interdites** (`STOCK_INSUFFISANT`). Mise à jour conditionnelle atomique (`UPDATE ... WHERE quantite_disponible >= :q`) + contrainte `CHECK` en base comme filet de sécurité final. Multi-lignes = tout ou rien. Pas de fonctionnalité de réservation en v1.
 3. **Cycle des Enregistrements Sensibles** :
-   `brouillon` (draft) ➔ `soumis` (submitted) ➔ `approuvé` (approved) ➔ `enregistré` (recorded).
-   Toute transaction à l'état `enregistré` est scellée et immuable ; seule une **extourne contrôlée** (contre-passation symétrique motivée) peut annuler son impact.
-4. **Multi-Tenancy** : Tout appel et toute requête en base doivent être filtrés par `organization_id`.
-5. **Monnaie & Précision** : Dirham Marocain (`MAD`). Montants manipulés en centimes entiers ou `Prisma.Decimal` haute précision pour éliminer tout arrondi erroné.
+   `brouillon` (draft) ➔ `soumis` (submitted) ➔ `approuvé` (approved) ➔ `enregistré` (recorded), avec rejet possible `soumis` ➔ `brouillon` (motif obligatoire).
+   Toute transaction à l'état `enregistré` est scellée et immuable ; seule une **extourne contrôlée** (contre-passation symétrique motivée, unique, réservée aux enregistrements `ENREGISTRE`) peut annuler son impact. Un décompte ne peut être extourné tant qu'un décompte ultérieur du même chantier reste `ENREGISTRE`. Le même utilisateur ne peut pas soumettre **et** approuver la même opération.
+4. **Multi-Tenancy** : Tout appel et toute requête en base doivent être filtrés par `organization_id`, dérivé uniquement du JWT authentifié (jamais d'un en-tête client). Isolation à deux couches : extension Prisma (toutes opérations, y compris `update`/`delete`) + PostgreSQL Row-Level Security en défense en profondeur. Le rôle DB applicatif standard n'a jamais `BYPASSRLS`.
+5. **Monnaie & Précision** : Dirham Marocain (`MAD`). Montants exclusivement en `Prisma.Decimal` / SQL `DECIMAL(14,2)` — les centimes entiers sont explicitement écartés (aucune ambiguïté). Fuseau horaire métier : `Africa/Casablanca` (dates calendaires) ; horodatages stockés en UTC (`timestamptz`).
+6. **Idempotence** : les écritures rejouables (sorties de stock, pointages, dépenses, acomptes) exigent un en-tête `Idempotency-Key` ; même clé + même requête ⇒ même résultat renvoyé sans duplication ; même clé + requête différente ⇒ `409 IDEMPOTENCY_KEY_CONFLICT`.

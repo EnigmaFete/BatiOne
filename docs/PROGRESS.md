@@ -40,3 +40,5 @@
 - Définition de la gouvernance multi-agents dans `AGENTS.md` et `CLAUDE.md`.
 - Élaboration complète du dossier de conception technique : spécifications produit, architecture système, schéma relationnel Prisma, contrats d'API NestJS, modèle de sécurité, stratégie de test, feuille de route et journal des décisions d'architecture (ADR).
 - Définition des invariants stricts : cycle de vie en 4 étapes (`brouillon` ➔ `soumis` ➔ `approuvé` ➔ `enregistré`), mécanisme d'extourne contrôlée pour les enregistrements scellés, interdiction absolue des sorties de stock excédentaires (stock négatif bloqué au niveau transactionnel), et limitation du périmètre financier au job-costing opérationnel.
+- Réconciliation formelle de la revue d'architecture indépendante dans `AGENTS.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md` et `docs/DATABASE_SCHEMA.md` : précision sur `Prisma.Decimal` (ADR-007), extourne ordonnée des décomptes (ADR-003), atomicité SQL des mouvements de stock (ADR-002), et isolation multi-tenant à double niveau (Prisma étendu + PostgreSQL RLS sans `BYPASSRLS`).
+

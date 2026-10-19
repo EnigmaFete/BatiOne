@@ -39,15 +39,21 @@ stateDiagram-v2
 - Un enregistrement `ENREGISTRE` (Recorded) devient **strictement immuable**. Aucune modification ni suppression directe n'est tolérée en base.
 - Seule une **contre-passation contrôlée (extourne / reversal)** est autorisée : création d'un enregistrement symétrique inverse, horodaté, motivé, rattaché à l'original et validé par un utilisateur habilité (`ORG_ADMIN` ou `DAF_COMPTABLE`).
 
-### 2.4. Invariant de Stock : Blocage Absolu des Sorties Excédentaires
+### 2.4. Invariant de Stock : Blocage Absolu des Sorties Excédentaires (Décision D8/D9 — voir ADR-002 révisé)
 - **Aucun stock négatif n'est autorisé dans BatiOne.**
-- Toute sortie de stock (Bon de Sortie, affectation à un chantier) doit vérifier la quantité réellement disponible dans le magasin source (magasin central ou magasin de chantier) au sein d'une transaction PostgreSQL avec verrou (`SELECT ... FOR UPDATE` ou transaction interactive Prisma).
-- Si `quantité_demandée > quantité_disponible`, l'opération est **rejetée immédiatement** avec une erreur explicite `STOCK_INSUFFISANT`.
+- Mécanisme retenu : **mise à jour conditionnelle atomique en une seule instruction SQL** (`UPDATE ... SET quantite_disponible = quantite_disponible - :q WHERE id = :id AND quantite_disponible >= :q`), vérifiée par le nombre de lignes affectées — et non une lecture puis décrémentation séparées. Une contrainte `CHECK (quantite_disponible >= 0)` au niveau base de données constitue le filet de sécurité final, indépendant de la couche applicative.
+- Pour un document à plusieurs lignes (Bon de Sortie multi-articles), **toutes les lignes réussissent ou échouent ensemble** dans une unique transaction interactive Prisma.
+- Si `quantité_demandée > quantité_disponible`, l'opération est **rejetée immédiatement** avec une erreur explicite `STOCK_INSUFFISANT`, sans modification partielle.
+- Il n'existe pas de mécanisme de réservation de stock en v1 (fonctionnalité explicitement retirée du périmètre, cf. ADR-002) : la disponibilité se lit directement sur `quantite_disponible`.
 
-### 2.5. Isolation Multi-Tenant Stricte
+### 2.5. Isolation Multi-Tenant Stricte (Décision D10/D14 — voir ADR-005 révisé)
 - Chaque table contenant des données d'entreprise possède obligatoirement la colonne `organization_id`.
-- Chaque requête, lecture ou écriture, est cloisonnée par l'organisation de l'utilisateur actif via le client Prisma sécurisé (`$extends` / middleware de tenant).
-- Aucune fuite de données inter-organisations n'est admissible.
+- Le contexte tenant ne provient **jamais** d'un en-tête fourni par le navigateur (`X-Tenant-ID` est **supprimé** du contrat, cf. ADR-017) : il est dérivé exclusivement de l'appartenance d'organisation vérifiée dans le JWT authentifié.
+- L'isolation repose sur **deux couches indépendantes, dont aucune ne remplace l'autre** :
+  1. **Couche applicative** : client Prisma étendu injectant `organization_id` sur `where` ET sur les opérations de mutation (`update`/`delete` compris — pas seulement `create`).
+  2. **Couche base de données (défense en profondeur)** : PostgreSQL Row-Level Security (RLS) activée sur chaque table tenant, avec contexte de transaction (`SET LOCAL app.current_org_id`) posé par le guard NestJS. Le rôle de connexion applicatif standard ne dispose **jamais** de `BYPASSRLS` ni de privilège superuser ; tout accès privilégié transverse (SUPERADMIN) passe par un rôle distinct, audité et autorisé explicitement (cf. §9 de `SECURITY_MODEL.md`).
+- **Statut d'implémentation** : cette section décrit une décision d'architecture approuvée. Elle n'est, à ce stade, ni implémentée ni testée — la mise en œuvre et la vérification (RLS, tests d'écriture inter-tenant) sont des livrables de phase d'implémentation distincts du présent cadrage documentaire.
+- Aucune fuite de données inter-organisations n'est admissible, en lecture comme en écriture.
 
 ---
 
@@ -79,8 +85,11 @@ Avant de déclarer une tâche ou une phase terminée, l'agent doit exécuter et 
 
 ## 5. Pratiques Proscrites
 - ❌ Implémenter des fonctionnalités métier avant validation formelle de la conception.
-- ❌ Utiliser des nombres à virgule flottante natifs pour les montants financiers (utiliser centimes entiers ou `Decimal`).
-- ❌ Permettre une sortie de stock supérieure à la quantité disponible.
-- ❌ Supprimer ou modifier un enregistrement à l'état `ENREGISTRE` (Recorded) sans passer par une extourne.
-- ❌ Écrire des requêtes SQL ou Prisma sans clause `organization_id`.
-- ❌ Committer des clés secrètes ou des mots de passe en clair.
+- ❌ Utiliser des nombres à virgule flottante natifs **ou des centimes entiers** pour les montants financiers — seul `Prisma.Decimal` / SQL `DECIMAL(14,2)` est autorisé (décision tranchée, cf. ADR-007 ; aucune ambiguïté résiduelle).
+- ❌ Permettre une sortie de stock supérieure à la quantité disponible, ou décomposer la vérification et la décrémentation en deux opérations non atomiques.
+- ❌ Supprimer ou modifier un enregistrement à l'état `ENREGISTRE` (Recorded) sans passer par une extourne ; extourner un enregistrement qui n'est pas à l'état `ENREGISTRE` ; extourner un enregistrement déjà extourné ; extourner un décompte alors qu'un décompte ultérieur du même chantier est encore `ENREGISTRE` (cf. ADR-003 révisé).
+- ❌ Écrire des requêtes SQL ou Prisma sans clause `organization_id`, sur une table dépourvue de cette colonne, ou en s'appuyant uniquement sur un en-tête `X-Tenant-ID` fourni par le client comme preuve d'autorisation.
+- ❌ Accorder au rôle de connexion applicatif standard le privilège `BYPASSRLS` ou un rôle superuser PostgreSQL.
+- ❌ Coder en dur un taux de majoration d'heures supplémentaires ou une règle de paie sans vérification préalable auprès du droit du travail marocain en vigueur (cf. §2.3 `PRODUCT_SPEC.md`).
+- ❌ Committer des clés secrètes ou des mots de passe en clair, y compris dans la documentation ou les fichiers d'exemple (`.env.example` ne contient que des valeurs fictives).
+- ❌ Affirmer qu'un mécanisme de sécurité (RLS, révocation de session, sauvegarde) est implémenté ou testé tant que la preuve d'exécution correspondante n'existe pas.
