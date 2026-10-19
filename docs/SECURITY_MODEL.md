@@ -1,75 +1,48 @@
-# SECURITY_MODEL.md — Security & Compliance Architecture
+# SECURITY_MODEL.md — Architecture de Sécurité & Conformité BTP
 
-## 1. Multi-Tenant Data Isolation
+## 1. Isolation Multi-Tenant Inviolable
 
-### 1.1. Invariant Guarantee
-Every piece of customer data belongs strictly to a single `organization_id`. At no time should data from Organization A be accessible to, modifiable by, or visible to Organization B.
+### 1.1. Invariant de Sécurité
+Chaque organisation cliente constitue une cellule de données étanche. Aucune donnée d'une organisation A ne peut être lue, modifiée, inférée ou listée par un utilisateur de l'organisation B.
 
-### 1.2. Enforcement Mechanisms
-1. **JWT & Session Binding**: The user's authenticated token carries the verified `organizationId`. Client-supplied tenant headers are cross-checked against this cryptographically signed claim.
-2. **Database Query Level**: All ORM/SQL repositories automatically inject `WHERE organization_id = :orgId`. Direct raw queries that omit tenant parameters are rejected by pre-commit linters and code reviews.
-3. **Storage Namespacing**: S3 / local file storage buckets partition documents into isolated paths:
-   `/storage/tenants/{organization_id}/chantiers/{chantier_id}/...`
-
----
-
-## 2. Authentication & Session Management
-
-- **Password Hashing**: Argon2id or bcrypt (cost factor >= 12).
-- **Access Tokens**: Short-lived JWTs (15 minutes expiry) signed via RS256 or HS256.
-- **Refresh Tokens**: Long-lived (7–30 days) stored in `HttpOnly`, `Secure`, `SameSite=Strict` cookies, with automatic revocation on reuse or logout.
-- **Brute Force Protection**: Rate limiting on `/api/v1/auth/login` (maximum 5 failed attempts per IP/account per 15 minutes).
+### 1.2. Architecture de Cloisonnement
+1. **Identification par Token Cryptographique** : Le JWT de l'utilisateur authentifié contient de manière inaltérable l'identifiant `organizationId`. Toute tentative de transmission d'un en-tête `X-Tenant-ID` tiers est invalidée par le guard NestJS `TenantGuard`.
+2. **Couche ORM Prisma Étendue** : Le client Prisma n'exécute aucune requête sans injecter automatiquement le prédicat `WHERE organization_id = :orgId`. Les tentatives d'accès transversal déclenchent une exception de sécurité immédiate.
+3. **Partitionnement du Stockage Documentaire** : Les documents sensibles (plans, scans de BL, photos CIN) sont stockés sous un préfixe isolé :
+   `s3://batione-storage/{organization_id}/chantiers/{chantier_id}/...` avec URL présignées éphémères (validité maximale 15 minutes).
 
 ---
 
-## 3. Role-Based Access Control (RBAC) Matrix
+## 2. Matrice RBAC des Permissions (6 Rôles Métiers BTP)
 
-| Feature / Resource | SUPERADMIN | ORG_ADMIN (Gérant) | CONDUCTEUR DE TRAVAUX | CHEF DE CHANTIER | DAF / COMPTABLE | MAGASINIER |
+| Module & Action | SUPERADMIN | ORG_ADMIN (Gérant) | CONDUCTEUR DE TRAVAUX | CHEF DE CHANTIER | DAF / COMPTABLE | MAGASINIER |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Manage Tenant & Settings** | Full | Full | None | None | Read-only | None |
-| **Create / Archive Chantiers**| Full | Full | Full | None | Read-only | None |
-| **View Financial Margins** | Full | Full | Full | None | Full | None |
-| **Create Devis & BPU** | Full | Full | Full | Read-only | Read-only | None |
-| **Generate & Sign Décomptes** | Full | Full | Full | None | Full | None |
-| **Approve Supplier Invoices** | Full | Full | Read/Validate | None | Full | None |
-| **Daily Pointage Entry** | Full | Full | Full | Full (Assigned) | Read-only | None |
-| **Validate Payroll (Paie)** | Full | Full | Read-only | None | Full | None |
-| **Sign BL (Reception Matériaux)**| Full | Full | Full | Full (Assigned) | Read-only | Full |
-| **Dispatch Heavy Machinery** | Full | Full | Full | None | Read-only | Full |
+| **Gestion Société & Paramètres** | Total | Total | Aucun | Aucun | Lecture seule | Aucun |
+| **Création & Gestion Chantiers** | Total | Total | Total (Assignés) | Lecture seule | Lecture seule | Aucun |
+| **Saisie Journal de Chantier** | Total | Total | Total | Total (Assigné) | Lecture seule | Aucun |
+| **Création Devis & BPU** | Total | Total | Total | Aucun | Lecture seule | Aucun |
+| **Approbation Décomptes (Provisoires)**| Total | Total | Approbation | Aucun | Approbation/Scellement | Aucun |
+| **Sortie de Stock (Bons de Sortie)** | Total | Total | Demande | Réception chantier | Contrôle | Saisie & Déstockage |
+| **Saisie Pointage Journalier** | Total | Total | Validation | Saisie terrain | Contrôle paie | Aucun |
+| **Validation Définitive Paie & Acomptes**| Total | Total | Consultation | Saisie acomptes | Validation & Paiement | Aucun |
+| **Affectation du Parc d'Engins** | Total | Total | Planification | Relevé compteur | Contrôle coût | Gestion atelier |
+| **Déclenchement d'une Extourne** | Total | Total | Demande motivée | Interdit | Validation & Exécution| Interdit |
+| **Consultation Grand Livre Consolidé** | Total | Total | Synthèse chantier | Aucun | Totalité | Aucun |
 
 ---
 
-## 4. Input Validation & Defense-in-Depth
+## 3. Sécurité des Transactions & Immutabilité des Enregistrements
 
-- **Strict Validation**: All incoming requests pass through declarative Zod schemas before touching any service logic.
-- **SQL Injection Prevention**: Prepared statements and parameterized queries exclusively.
-- **Cross-Site Scripting (XSS)**: Automatic HTML entity escaping across all rendered UI fields; strict `Content-Security-Policy` (CSP) headers.
-- **Cross-Origin Resource Sharing (CORS)**: Strict whitelist restricting API access exclusively to trusted BatiOne domains.
+### 3.1. Scellement Opérationnel
+- Dès qu'une ressource passe à l'état `ENREGISTRE` (Recorded), un hook Prisma ou un trigger d'intégrité bloque toute opération `UPDATE` ou `DELETE` directe sur les tables de fait.
+- Toute correction impose la création d'une ligne d'extourne symétrique inverse (`statut = 'EXTOURNE'`) rattachée par `extourne_de_id`.
 
----
-
-## 5. File Upload Safeguards
-Field workers upload photos of site progress and scanned supplier delivery notes (Bons de Livraison).
-- **Allowed MIME types**: `image/jpeg`, `image/png`, `image/webp`, `application/pdf`.
-- **File size limits**: Max 10MB per file.
-- **Malware & Execution Prevention**: Files are stored outside the web server root, served with `Content-Disposition: inline` and forced non-executable MIME headers. Original filenames are replaced with random UUIDs.
+### 3.2. Prévention des Concurrences sur le Stock
+- Pour prévenir la double allocation de matériaux (par exemple, deux chefs de chantier réservant le même lot de ciment simultanément), la vérification du stock disponible s'effectue dans une transaction interactive PostgreSQL avec niveau d'isolation sérialisable ou verrou pessimiste explicite.
 
 ---
 
-## 6. Audit Trail & Financial Immutability
-- Financial transactions (issued décomptes, approved supplier invoices, recorded wage distributions) are append-only.
-- All mutating actions record:
-  - `user_id`
-  - `action` (`CREATE`, `UPDATE_STATUS`, `DELETE`, `APPROVE`)
-  - `resource_type` and `resource_id`
-  - `ip_address`
-  - `timestamp`
-  - `changes_diff` (JSON snapshot of modified fields)
-
----
-
-## 7. Regulatory Compliance (Morocco CNDP Law 09-08)
-Worker registries store Moroccan National Identity Card (CIN) numbers and attendance data:
-- Personal data is encrypted at rest using AES-256.
-- Workers can request rectification of their attendance/identity records.
-- Export capabilities provide full transparency for CNSS and labor inspection audits.
+## 4. Protection des Données Personnelles (Loi Marocaine 09-08 / CNDP)
+- **Données Sensibles** : Numéros de CIN marocains, numéros d'immatriculation CNSS et photographies d'ouvriers.
+- **Chiffrement** : Données à caractère personnel chiffrées au repos via AES-256.
+- **Droit d'accès et de rectification** : Interface d'export et de rectification des fiches ouvriers pour conformité aux audits de l'inspection du travail et de la CNSS.

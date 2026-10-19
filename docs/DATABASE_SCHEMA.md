@@ -1,243 +1,621 @@
-# DATABASE_SCHEMA.md — Relational Data Model & Schemas
+# DATABASE_SCHEMA.md — Schéma de Données Relationnel & Modèle Prisma
 
-## 1. Overview
-The BatiOne schema is structured for multi-tenant isolation, high data integrity, strict audit logging, and precise financial calculations for Moroccan construction operations.
-
-All monetary values are stored as integers representing **centimes** (e.g., 100.00 MAD = `10000`) or `DECIMAL(14, 2)` to eliminate IEEE 754 floating-point inaccuracies.
-
----
-
-## 2. Entity Relationship Diagram
-
-```mermaid
-erDiagram
-    ORGANIZATIONS ||--o{ USERS : contains
-    ORGANIZATIONS ||--o{ CHANTIERS : operates
-    ORGANIZATIONS ||--o{ CLIENTS : manages
-    ORGANIZATIONS ||--o{ FOURNISSEURS : contracts
-    ORGANIZATIONS ||--o{ OUVRIERS : employs
-    ORGANIZATIONS ||--o{ ENGINS : owns
-
-    CHANTIERS ||--o{ DEVIS : has
-    DEVIS ||--o{ DEVIS_LIGNES : contains
-    CHANTIERS ||--o{ DECOMPTES : bills
-    DECOMPTES ||--o{ DECOMPTE_LIGNES : contains
-
-    CHANTIERS ||--o{ DEPENSES : incurs
-    CHANTIERS ||--o{ BONS_COMMANDE : orders
-    BONS_COMMANDE ||--o{ BONS_LIVRAISON : fulfills
-    BONS_LIVRAISON ||--o{ BONS_LIVRAISON_LIGNES : contains
-
-    CHANTIERS ||--o{ POINTAGES : records
-    OUVRIERS ||--o{ POINTAGES : logs
-    CHANTIERS ||--o{ AFFECTATIONS_ENGINS : uses
-    ENGINS ||--o{ AFFECTATIONS_ENGINS : deployed
-```
+## 1. Principes & Conventions de Modélisation
+- **Prisma & PostgreSQL** : Définition formelle sous forme de modèle `schema.prisma`.
+- **Typage Monétaire Strict** : Les montants financiers sont modélisés en `Decimal(14, 2)` ou en entiers de centimes (`BigInt`) pour garantir une précision absolue.
+- **Invariant de Stock Non-Négatif** : La table `StockMagasin` intègre une contrainte d'intégrité et un index unique garantissant l'impossibilité physique de stock négatif.
+- **Traçabilité & Extourne** : Les entités sensibles disposent d'un statut opérationnel (`BROUILLON`, `SOUMIS`, `APPROUVE`, `ENREGISTRE`, `EXTOURNE`) et d'un champ d'auto-référence `extourne_de_id`.
 
 ---
 
-## 3. Core Tables Specification
+## 2. Définition Complète du Schéma Prisma (`schema.prisma`)
 
-### 3.1. Organization & User Management
-```sql
--- Organizations (Tenants)
-CREATE TABLE organizations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nom VARCHAR(255) NOT NULL,
-    ice VARCHAR(15) UNIQUE NOT NULL,      -- Identifiant Commun de l'Entreprise (Morocco)
-    rc VARCHAR(50),                       -- Registre de Commerce
-    if_num VARCHAR(50),                   -- Identifiant Fiscal
-    patente VARCHAR(50),
-    adresse TEXT,
-    ville VARCHAR(100) DEFAULT 'Casablanca',
-    telephone VARCHAR(50),
-    email VARCHAR(255),
-    devise VARCHAR(10) DEFAULT 'MAD',
-    logo_url TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
--- Users
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    nom VARCHAR(100) NOT NULL,
-    prenom VARCHAR(100) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(50) NOT NULL CHECK (role IN (
-        'SUPERADMIN', 
-        'ORG_ADMIN', 
-        'CONDUCTEUR_TRAVAUX', 
-        'CHEF_CHANTIER', 
-        'DAF_COMPTABLE', 
-        'MAGASINIER'
-    )),
-    telephone VARCHAR(50),
-    cin VARCHAR(20),                      -- Carte d'Identité Nationale
-    actif BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_users_org ON users(organization_id);
-```
+generator client {
+  provider = "prisma-client-js"
+}
 
-### 3.2. Chantiers & Projects
-```sql
-CREATE TABLE chantiers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    code_chantier VARCHAR(50) NOT NULL,   -- e.g. 'CH-2026-004'
-    nom VARCHAR(255) NOT NULL,
-    client_id UUID REFERENCES clients(id),
-    conducteur_id UUID REFERENCES users(id),
-    chef_chantier_id UUID REFERENCES users(id),
-    statut VARCHAR(50) DEFAULT 'ETUDE' CHECK (statut IN (
-        'ETUDE', 'EN_COURS', 'RECEPTION_PROVISOIRE', 'RECEPTION_DEFINITIVE', 'CLOTURE', 'SUSPENDU'
-    )),
-    adresse TEXT,
-    ville VARCHAR(100),
-    date_demarrage DATE,
-    date_fin_prevue DATE,
-    date_fin_reelle DATE,
-    budget_previsionnel_mad BIGINT DEFAULT 0, -- Stored in centimes
-    montant_marche_ht_mad BIGINT DEFAULT 0,
-    taux_tva NUMERIC(5, 2) DEFAULT 20.00,
-    taux_retenue_garantie NUMERIC(5, 2) DEFAULT 10.00, -- Standard 10% or 5%
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(organization_id, code_chantier)
-);
-CREATE INDEX idx_chantiers_org_statut ON chantiers(organization_id, statut);
-```
+// -------------------------------------------------------------
+// ENUMS COMMUNS & ÉTATS OPÉRATIONNELS
+// -------------------------------------------------------------
 
-### 3.3. Bordereau des Prix, Devis & Décomptes (Invoicing)
-```sql
--- Devis / Marché Bordereau des Prix
-CREATE TABLE devis (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    chantier_id UUID NOT NULL REFERENCES chantiers(id) ON DELETE CASCADE,
-    reference VARCHAR(50) NOT NULL,       -- e.g. 'DEV-2026-012'
-    objet TEXT NOT NULL,
-    total_ht_mad BIGINT DEFAULT 0,
-    total_tva_mad BIGINT DEFAULT 0,
-    total_ttc_mad BIGINT DEFAULT 0,
-    statut VARCHAR(50) DEFAULT 'BROUILLON' CHECK (statut IN ('BROUILLON', 'ENVOYE', 'VALIDE', 'REFUSE')),
-    date_emission DATE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+enum RoleUtilisateur {
+  SUPERADMIN
+  ORG_ADMIN              // Directeur Général / Gérant
+  CONDUCTEUR_TRAVAUX     // Chef de projet travaux
+  CHEF_CHANTIER          // Responsable terrain
+  DAF_COMPTABLE          // Responsable financier
+  MAGASINIER             // Gestionnaire des stocks et dépôts
+}
 
-CREATE TABLE devis_lignes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    devis_id UUID NOT NULL REFERENCES devis(id) ON DELETE CASCADE,
-    numero_prix VARCHAR(50),              -- e.g. '1.01', '1.02'
-    designation TEXT NOT NULL,
-    unite VARCHAR(20) NOT NULL,           -- 'm²', 'm³', 'ml', 'u', 'kg', 'forfait'
-    quantite NUMERIC(12, 3) NOT NULL,
-    prix_unitaire_mad BIGINT NOT NULL,    -- Centimes
-    total_ligne_ht_mad BIGINT NOT NULL
-);
+enum StatutOperationnel {
+  BROUILLON              // Draft
+  SOUMIS                 // Submitted
+  APPROUVE               // Approved
+  ENREGISTRE             // Recorded (Scellé et immuable)
+  EXTOURNE               // Reversal (Contre-passation d'un enregistrement annulé)
+}
 
--- Décomptes Provisoires & Définitifs (BTP Invoicing)
-CREATE TABLE decomptes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    chantier_id UUID NOT NULL REFERENCES chantiers(id) ON DELETE CASCADE,
-    numero_decompte INT NOT NULL,         -- Décompte N° 1, 2, 3...
-    type_decompte VARCHAR(50) DEFAULT 'PROVISOIRE' CHECK (type_decompte IN ('PROVISOIRE', 'DERNIER_PROVISOIRE', 'DEFINITIF')),
-    periode_debut DATE NOT NULL,
-    periode_fin DATE NOT NULL,
-    cumul_precedent_ht_mad BIGINT DEFAULT 0,
-    cumul_mois_ht_mad BIGINT DEFAULT 0,
-    cumul_total_ht_mad BIGINT DEFAULT 0,
-    retenue_garantie_mad BIGINT DEFAULT 0, -- Deducted retention
-    montant_net_ht_mad BIGINT DEFAULT 0,
-    montant_tva_mad BIGINT DEFAULT 0,
-    montant_net_ttc_mad BIGINT DEFAULT 0,
-    statut VARCHAR(50) DEFAULT 'BROUILLON' CHECK (statut IN ('BROUILLON', 'SOUMIS', 'APPROUVE', 'PAYE')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-```
+enum StatutChantier {
+  ETUDE
+  EN_COURS
+  RECEPTION_PROVISOIRE
+  RECEPTION_DEFINITIVE
+  CLOTURE
+  SUSPENDU
+}
 
-### 3.4. Dépenses & Suivi des Coûts Réels (Job Costing)
-```sql
-CREATE TABLE depenses (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    chantier_id UUID NOT NULL REFERENCES chantiers(id) ON DELETE CASCADE,
-    categorie VARCHAR(50) NOT NULL CHECK (categorie IN (
-        'MATERIAUX', 'MAIN_D_OEUVRE', 'MATERIEL_ENGINS', 'SOUS_TRAITANCE', 'FRAIS_GENERAUX'
-    )),
-    date_depense DATE NOT NULL,
-    fournisseur_id UUID REFERENCES fournisseurs(id),
-    piece_justificative_ref VARCHAR(100), -- Facture N°, BL N°, Reçu
-    justificatif_url TEXT,
-    montant_ht_mad BIGINT NOT NULL,
-    taux_tva NUMERIC(5, 2) DEFAULT 20.00,
-    montant_ttc_mad BIGINT NOT NULL,
-    mode_paiement VARCHAR(50) CHECK (mode_paiement IN ('VIREMENT', 'CHEQUE', 'EFFET', 'ESPECES', 'CAISSE_CHANTIER')),
-    statut_paiement VARCHAR(50) DEFAULT 'EN_ATTENTE' CHECK (statut_paiement IN ('EN_ATTENTE', 'PARTIEL', 'REGLE')),
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_depenses_chantier_cat ON depenses(chantier_id, categorie);
-```
+enum TypeTiers {
+  CLIENT_MAITRE_OUVRAGE
+  MAITRE_OEUVRE_ARCHITECTE
+  BUREAU_ETUDES_BET
+  BUREAU_CONTROLE
+  FOURNISSEUR
+  SOUS_TRAITANT
+}
 
-### 3.5. Ouvriers & Pointages Journaliers
-```sql
-CREATE TABLE ouvriers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    nom VARCHAR(100) NOT NULL,
-    prenom VARCHAR(100) NOT NULL,
-    cin VARCHAR(20),
-    metier VARCHAR(100) NOT NULL,         -- e.g. 'Maçon', 'Ferrailleur', 'Coffreur', 'Électricien', 'Manœuvre'
-    type_contrat VARCHAR(50) DEFAULT 'JOURNALIER' CHECK (type_contrat IN ('CDI', 'CDD', 'JOURNALIER', 'TACHERON')),
-    taux_journalier_mad BIGINT NOT NULL,  -- Daily rate in centimes
-    taux_horaire_mad BIGINT DEFAULT 0,
-    actif BOOLEAN DEFAULT TRUE
-);
+enum CategorieDepense {
+  MATERIAUX
+  MAIN_D_OEUVRE
+  MATERIEL_ENGINS
+  SOUS_TRAITANCE
+  FRAIS_GENERAUX_CHANTIER
+}
 
-CREATE TABLE pointages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    chantier_id UUID NOT NULL REFERENCES chantiers(id) ON DELETE CASCADE,
-    ouvrier_id UUID NOT NULL REFERENCES ouvriers(id) ON DELETE CASCADE,
-    date_pointage DATE NOT NULL,
-    statut_presence VARCHAR(20) DEFAULT 'PRESENT' CHECK (statut_presence IN ('PRESENT', 'DEMI_JOURNEE', 'ABSENT', 'CONGE')),
-    heures_regulieres NUMERIC(4, 2) DEFAULT 8.00,
-    heures_supplementaires NUMERIC(4, 2) DEFAULT 0.00,
-    cout_total_mad BIGINT NOT NULL,       -- Automatically calculated for job costing
-    valide_par_chef UUID REFERENCES users(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(chantier_id, ouvrier_id, date_pointage)
-);
-CREATE INDEX idx_pointages_chantier_date ON pointages(chantier_id, date_pointage);
-```
+enum TypeMouvementStock {
+  ENTREE_FOURNISSEUR     // Réception Bon de Livraison (BL)
+  SORTIE_CHANTIER        // Consommation sur chantier (Bon de Sortie)
+  TRANSFERT_INTER_DEPOT  // Déplacement entre dépôts
+  RETOUR_CHANTIER        // Réintégration surplus de chantier
+  EXTOURNE_MOUVEMENT     // Annulation contrôlée
+}
 
-### 3.6. Engins & Matériel de Chantier
-```sql
-CREATE TABLE engins (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    code_interne VARCHAR(50) NOT NULL,    -- e.g. 'ENG-001'
-    nom VARCHAR(150) NOT NULL,            -- e.g. 'Grue à tour Potain', 'Pelleteuse CAT 320'
-    categorie VARCHAR(50) NOT NULL,       -- 'TERRASSEMENT', 'LEVAGE', 'TRANSPORT', 'PETIT_MATERIEL'
-    immatriculation VARCHAR(50),
-    cout_horaire_mad BIGINT DEFAULT 0,    -- Cost allocated per hour of operation
-    cout_journalier_mad BIGINT DEFAULT 0,
-    compteur_horaire NUMERIC(10, 2) DEFAULT 0.00,
-    statut VARCHAR(50) DEFAULT 'DISPONIBLE' CHECK (statut IN ('DISPONIBLE', 'AFFECTE', 'EN_PANNE', 'EN_MAINTENANCE'))
-);
+enum TypeContratOuvrier {
+  PERMANENT_MENSUEL
+  JOURNALIER
+  TACHERON
+}
 
-CREATE TABLE affectations_engins (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    engin_id UUID NOT NULL REFERENCES engins(id) ON DELETE CASCADE,
-    chantier_id UUID NOT NULL REFERENCES chantiers(id) ON DELETE CASCADE,
-    date_debut DATE NOT NULL,
-    date_fin DATE,
-    cout_calcule_mad BIGINT DEFAULT 0
-);
+// -------------------------------------------------------------
+// MODULE 1 : ORGANISATION & UTILISATEURS (MULTI-TENANCY)
+// -------------------------------------------------------------
+
+model Organization {
+  id                    String                 @id @default(uuid())
+  nom                   String
+  ice                   String                 @unique // Identifiant Commun de l'Entreprise
+  rc                    String?                // Registre de Commerce
+  if_num                String?                // Identifiant Fiscal
+  patente               String?
+  adresse               String?
+  ville                 String                 @default("Casablanca")
+  telephone             String?
+  email                 String?
+  devise                String                 @default("MAD")
+  logo_url              String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+
+  users                 User[]
+  chantiers             Chantier[]
+  tiers                 Tiers[]
+  articles              Article[]
+  magasins              Magasin[]
+  ouvriers              Ouvrier[]
+  engins                Engin[]
+  ecrituresConsolidees  EcritureConsolidee[]
+  pistesAudit           PisteAudit[]
+}
+
+model User {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  nom                   String
+  prenom                String
+  email                 String                 @unique
+  password_hash         String
+  role                  RoleUtilisateur        @default(CHEF_CHANTIER)
+  telephone             String?
+  cin                   String?                // Carte d'Identité Nationale
+  actif                 Boolean                @default(true)
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  chantiersConducteur   Chantier[]             @relation("ConducteurChantier")
+  chantiersChef         Chantier[]             @relation("ChefChantier")
+  actionsAudit          PisteAudit[]
+
+  @@index([organization_id, role])
+}
+
+// -------------------------------------------------------------
+// MODULE 2 : PROJETS, CHANTIERS & JOURNAL DE CHANTIER
+// -------------------------------------------------------------
+
+model Chantier {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  code_chantier         String                 // ex: 'CH-2026-001'
+  nom                   String
+  client_id             String?
+  conducteur_id         String?
+  chef_chantier_id      String?
+  statut                StatutChantier         @default(ETUDE)
+  adresse               String?
+  ville                 String                 @default("Casablanca")
+  date_demarrage        DateTime?
+  date_fin_prevue       DateTime?
+  date_fin_reelle       DateTime?
+  montant_marche_ht     Decimal                @default(0.00) @db.Decimal(14, 2)
+  taux_tva              Decimal                @default(20.00) @db.Decimal(5, 2)
+  taux_retenue_garantie Decimal                @default(10.00) @db.Decimal(5, 2)
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  client                Tiers?                 @relation(fields: [client_id], references: [id])
+  conducteur            User?                  @relation("ConducteurChantier", fields: [conducteur_id], references: [id])
+  chefChantier          User?                  @relation("ChefChantier", fields: [chef_chantier_id], references: [id])
+
+  lots                  LotTravaux[]
+  journaux              JournalChantier[]
+  devis                 Devis[]
+  decomptes             Decompte[]
+  depenses              Depense[]
+  bonsCommande          BonCommande[]
+  bonsSortie            BonSortie[]
+  pointages             Pointage[]
+  affectationsEngins    AffectationEngin[]
+  ecritures             EcritureConsolidee[]
+
+  @@unique([organization_id, code_chantier])
+  @@index([organization_id, statut])
+}
+
+model LotTravaux {
+  id                    String                 @id @default(uuid())
+  chantier_id           String
+  code_lot              String                 // ex: 'LOT-01'
+  designation           String                 // ex: 'Gros Œuvre'
+  budget_prevu_ht       Decimal                @default(0.00) @db.Decimal(14, 2)
+
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+  taches                TacheChantier[]
+}
+
+model TacheChantier {
+  id                    String                 @id @default(uuid())
+  lot_id                String
+  designation           String
+  avancement_pourcent   Int                    @default(0)
+  date_debut            DateTime?
+  date_fin              DateTime?
+
+  lot                   LotTravaux             @relation(fields: [lot_id], references: [id], onDelete: Cascade)
+}
+
+model JournalChantier {
+  id                    String                 @id @default(uuid())
+  chantier_id           String
+  date_journal          DateTime               @db.Date
+  meteo                 String?                // 'Ensoleillé', 'Pluie', 'Vent fort'
+  temperature           Int?
+  effectif_present      Int                    @default(0)
+  travaux_realises      String                 @db.Text
+  incidents_securite    String?                @db.Text
+  visites_chantier      String?                @db.Text
+  photos                PhotoChantier[]
+  created_at            DateTime               @default(now())
+
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+
+  @@unique([chantier_id, date_journal])
+}
+
+model PhotoChantier {
+  id                    String                 @id @default(uuid())
+  journal_id            String
+  url                   String
+  description           String?
+  created_at            DateTime               @default(now())
+
+  journal               JournalChantier        @relation(fields: [journal_id], references: [id], onDelete: Cascade)
+}
+
+// -------------------------------------------------------------
+// MODULE 3 & 4 : CLIENTS, MARCHÉS, DEVIS & DÉCOMPTES
+// -------------------------------------------------------------
+
+model Tiers {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  type_tiers            TypeTiers
+  raison_sociale        String
+  ice                   String?                // ICE marocain
+  rc                    String?
+  if_num                String?
+  adresse               String?
+  ville                 String?
+  telephone             String?
+  email                 String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  chantiersClient       Chantier[]
+  fournisseurBC         BonCommande[]
+  depensesTiers         Depense[]
+
+  @@index([organization_id, type_tiers])
+}
+
+model Devis {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  chantier_id           String
+  reference             String                 // 'DEV-2026-001'
+  objet                 String
+  total_ht              Decimal                @default(0.00) @db.Decimal(14, 2)
+  total_tva             Decimal                @default(0.00) @db.Decimal(14, 2)
+  total_ttc             Decimal                @default(0.00) @db.Decimal(14, 2)
+  statut                StatutOperationnel     @default(BROUILLON)
+  date_emission         DateTime               @db.Date
+  created_at            DateTime               @default(now())
+
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+  lignes                DevisLigne[]
+}
+
+model DevisLigne {
+  id                    String                 @id @default(uuid())
+  devis_id              String
+  numero_prix           String                 // '1.01'
+  designation           String
+  unite                 String                 // 'm²', 'm³', 'ml', 'kg', 'u', 'forfait'
+  quantite              Decimal                @db.Decimal(12, 3)
+  prix_unitaire_ht      Decimal                @db.Decimal(14, 2)
+  total_ligne_ht        Decimal                @db.Decimal(14, 2)
+
+  devis                 Devis                  @relation(fields: [devis_id], references: [id], onDelete: Cascade)
+}
+
+model Decompte {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  chantier_id           String
+  numero_decompte       Int                    // Décompte N° 1, 2, 3...
+  type_decompte         String                 @default("PROVISOIRE") // 'PROVISOIRE', 'DEFINITIF'
+  periode_debut         DateTime               @db.Date
+  periode_fin           DateTime               @db.Date
+  cumul_precedent_ht    Decimal                @default(0.00) @db.Decimal(14, 2)
+  cumul_mois_ht         Decimal                @default(0.00) @db.Decimal(14, 2)
+  cumul_total_ht        Decimal                @default(0.00) @db.Decimal(14, 2)
+  retenue_garantie_ht   Decimal                @default(0.00) @db.Decimal(14, 2)
+  montant_net_ht        Decimal                @default(0.00) @db.Decimal(14, 2)
+  montant_tva           Decimal                @default(0.00) @db.Decimal(14, 2)
+  montant_net_ttc       Decimal                @default(0.00) @db.Decimal(14, 2)
+  statut                StatutOperationnel     @default(BROUILLON)
+  extourne_de_id        String?                // Référence si extourne
+  date_validation       DateTime?
+  created_at            DateTime               @default(now())
+
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+
+  @@unique([chantier_id, numero_decompte])
+}
+
+// -------------------------------------------------------------
+// MODULE 5 : STOCKS, ARTICLES & APPROVISIONNEMENTS
+// -------------------------------------------------------------
+
+model Article {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  code_article          String                 // ex: 'CIM-CPJ45'
+  designation           String                 // 'Ciment CPJ 45 sac 50kg'
+  categorie             String                 // 'Liants', 'Aciers', 'Agrégats', 'EPI'
+  unite_mesure          String                 // 'sac', 'kg', 'tonne', 'm³', 'u'
+  prix_moyen_pondere_ht Decimal                @default(0.00) @db.Decimal(14, 2)
+  seuil_alerte_global   Decimal                @default(0.00) @db.Decimal(12, 3)
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  stocksMagasins        StockMagasin[]
+  lignesBC              BonCommandeLigne[]
+  lignesBL              BonLivraisonLigne[]
+  lignesBS              BonSortieLigne[]
+  mouvements            MouvementStock[]
+
+  @@unique([organization_id, code_article])
+}
+
+model Magasin {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  nom                   String                 // 'Dépôt Central Casablanca', 'Magasin Chantier Marina'
+  est_chantier          Boolean                @default(false)
+  chantier_id           String?
+  adresse               String?
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  stocks                StockMagasin[]
+  bonsSortieSource      BonSortie[]
+}
+
+model StockMagasin {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  magasin_id            String
+  article_id            String
+  quantite_disponible   Decimal                @default(0.00) @db.Decimal(12, 3)
+  quantite_reservee     Decimal                @default(0.00) @db.Decimal(12, 3)
+  updated_at            DateTime               @updatedAt
+
+  magasin               Magasin                @relation(fields: [magasin_id], references: [id], onDelete: Cascade)
+  article               Article                @relation(fields: [article_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, magasin_id, article_id])
+}
+
+model BonCommande {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  chantier_id           String
+  fournisseur_id        String
+  numero_bc             String                 // 'BC-2026-0042'
+  total_ht              Decimal                @default(0.00) @db.Decimal(14, 2)
+  statut                StatutOperationnel     @default(BROUILLON)
+  date_commande         DateTime               @db.Date
+
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+  fournisseur           Tiers                  @relation(fields: [fournisseur_id], references: [id])
+  lignes                BonCommandeLigne[]
+  bonsLivraison         BonLivraison[]
+}
+
+model BonCommandeLigne {
+  id                    String                 @id @default(uuid())
+  bon_commande_id       String
+  article_id            String
+  quantite_commandee    Decimal                @db.Decimal(12, 3)
+  prix_unitaire_ht      Decimal                @db.Decimal(14, 2)
+  total_ligne_ht        Decimal                @db.Decimal(14, 2)
+
+  bonCommande           BonCommande            @relation(fields: [bon_commande_id], references: [id], onDelete: Cascade)
+  article               Article                @relation(fields: [article_id], references: [id])
+}
+
+model BonLivraison {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  bon_commande_id       String
+  numero_bl_fournisseur String                 // Numéro inscrit sur le papier fournisseur
+  photo_bl_url          String?
+  statut                StatutOperationnel     @default(BROUILLON)
+  date_reception        DateTime               @db.Date
+  receptionne_par_id    String?
+
+  bonCommande           BonCommande            @relation(fields: [bon_commande_id], references: [id], onDelete: Cascade)
+  lignes                BonLivraisonLigne[]
+}
+
+model BonLivraisonLigne {
+  id                    String                 @id @default(uuid())
+  bon_livraison_id      String
+  article_id            String
+  quantite_livree       Decimal                @db.Decimal(12, 3)
+
+  bonLivraison          BonLivraison           @relation(fields: [bon_livraison_id], references: [id], onDelete: Cascade)
+  article               Article                @relation(fields: [article_id], references: [id])
+}
+
+model BonSortie {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  numero_bs             String                 // 'BS-2026-0012'
+  magasin_source_id     String
+  chantier_dest_id      String
+  statut                StatutOperationnel     @default(BROUILLON)
+  date_sortie           DateTime               @db.Date
+  motif                 String?
+  extourne_de_id        String?
+
+  magasinSource         Magasin                @relation(fields: [magasin_source_id], references: [id])
+  chantierDest          Chantier               @relation(fields: [chantier_dest_id], references: [id])
+  lignes                BonSortieLigne[]
+}
+
+model BonSortieLigne {
+  id                    String                 @id @default(uuid())
+  bon_sortie_id         String
+  article_id            String
+  quantite_sortie       Decimal                @db.Decimal(12, 3)
+
+  bonSortie             BonSortie              @relation(fields: [bon_sortie_id], references: [id], onDelete: Cascade)
+  article               Article                @relation(fields: [article_id], references: [id])
+}
+
+model MouvementStock {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  article_id            String
+  type_mouvement        TypeMouvementStock
+  quantite              Decimal                @db.Decimal(12, 3)
+  cout_unitaire_ht      Decimal                @default(0.00) @db.Decimal(14, 2)
+  valeur_totale_ht      Decimal                @default(0.00) @db.Decimal(14, 2)
+  chantier_id           String?
+  magasin_id            String?
+  reference_document    String?                // 'BL-1204', 'BS-0012'
+  statut                StatutOperationnel     @default(ENREGISTRE)
+  extourne_de_id        String?
+  created_at            DateTime               @default(now())
+
+  article               Article                @relation(fields: [article_id], references: [id])
+}
+
+// -------------------------------------------------------------
+// MODULE 6 : MAIN D'ŒUVRE, OUVRIERS & POINTAGES
+// -------------------------------------------------------------
+
+model Ouvrier {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  nom                   String
+  prenom                String
+  cin                   String?                // CIN marocaine
+  cnss                  String?                // Numéro d'immatriculation CNSS
+  metier                String                 // 'Maçon', 'Ferrailleur', 'Coffreur', 'Manœuvre'
+  type_contrat          TypeContratOuvrier     @default(JOURNALIER)
+  taux_journalier_mad   Decimal                @default(0.00) @db.Decimal(10, 2)
+  taux_horaire_mad      Decimal                @default(0.00) @db.Decimal(10, 2)
+  actif                 Boolean                @default(true)
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  pointages             PointageLigne[]
+  acomptes              AcompteOuvrier[]
+}
+
+model Pointage {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  chantier_id           String
+  date_pointage         DateTime               @db.Date
+  statut                StatutOperationnel     @default(BROUILLON)
+  valide_par_id         String?
+  extourne_de_id        String?
+  created_at            DateTime               @default(now())
+
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+  lignes                PointageLigne[]
+
+  @@unique([chantier_id, date_pointage])
+}
+
+model PointageLigne {
+  id                    String                 @id @default(uuid())
+  pointage_id           String
+  ouvrier_id            String
+  statut_presence       String                 @default("PRESENT") // 'PRESENT', 'DEMI_JOURNEE', 'ABSENT'
+  heures_normales       Decimal                @default(8.00) @db.Decimal(4, 2)
+  heures_sup            Decimal                @default(0.00) @db.Decimal(4, 2)
+  cout_total_calcule    Decimal                @default(0.00) @db.Decimal(14, 2)
+
+  pointage              Pointage               @relation(fields: [pointage_id], references: [id], onDelete: Cascade)
+  ouvrier               Ouvrier                @relation(fields: [ouvrier_id], references: [id])
+}
+
+model AcompteOuvrier {
+  id                    String                 @id @default(uuid())
+  ouvrier_id            String
+  chantier_id           String
+  montant_mad           Decimal                @db.Decimal(10, 2)
+  date_acompte          DateTime               @db.Date
+  statut                StatutOperationnel     @default(BROUILLON)
+  motif                 String?
+
+  ouvrier               Ouvrier                @relation(fields: [ouvrier_id], references: [id])
+}
+
+// -------------------------------------------------------------
+// MODULE 7 : ENGINS & PARC MATÉRIEL
+// -------------------------------------------------------------
+
+model Engin {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  code_interne          String                 // 'ENG-001'
+  nom                   String                 // 'Grue Potain MC85'
+  categorie             String                 // 'LEVAGE', 'TERRASSEMENT', 'TRANSPORT'
+  immatriculation       String?
+  cout_horaire_interne  Decimal                @default(0.00) @db.Decimal(10, 2)
+  compteur_horaire      Decimal                @default(0.00) @db.Decimal(10, 2)
+  statut                String                 @default("DISPONIBLE") // 'DISPONIBLE', 'AFFECTE', 'EN_MAINTENANCE'
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  affectations          AffectationEngin[]
+}
+
+model AffectationEngin {
+  id                    String                 @id @default(uuid())
+  engin_id              String
+  chantier_id           String
+  date_debut            DateTime               @db.Date
+  date_fin              DateTime?              @db.Date
+  statut                StatutOperationnel     @default(BROUILLON)
+
+  engin                 Engin                  @relation(fields: [engin_id], references: [id])
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id])
+}
+
+// -------------------------------------------------------------
+// MODULE 8 : DÉPENSES & ÉCRITURES CONSOLIDÉES (GRAND LIVRE)
+// -------------------------------------------------------------
+
+model Depense {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  chantier_id           String
+  tiers_fournisseur_id  String?
+  categorie             CategorieDepense
+  reference_piece       String                 // Facture N°, Reçu N°
+  date_depense          DateTime               @db.Date
+  montant_ht            Decimal                @db.Decimal(14, 2)
+  taux_tva              Decimal                @default(20.00) @db.Decimal(5, 2)
+  montant_tva           Decimal                @default(0.00) @db.Decimal(14, 2)
+  montant_ttc           Decimal                @db.Decimal(14, 2)
+  mode_paiement         String?                // 'VIREMENT', 'CHEQUE', 'EFFET', 'ESPECES', 'CAISSE_CHANTIER'
+  statut                StatutOperationnel     @default(BROUILLON)
+  extourne_de_id        String?
+  justificatif_url      String?
+  description           String?
+  created_at            DateTime               @default(now())
+
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+  fournisseur           Tiers?                 @relation(fields: [tiers_fournisseur_id], references: [id])
+}
+
+model EcritureConsolidee {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  chantier_id           String
+  date_ecriture         DateTime               @db.Date
+  categorie             CategorieDepense
+  source_module         String                 // 'STOCK', 'MAIN_DOEUVRE', 'ENGIN', 'DEPENSE_DIRECTE', 'DECOMPTE'
+  source_id             String                 // ID de la ligne source
+  reference_piece       String?
+  debit_mad             Decimal                @default(0.00) @db.Decimal(14, 2)
+  credit_mad            Decimal                @default(0.00) @db.Decimal(14, 2)
+  description           String
+  statut                StatutOperationnel     @default(ENREGISTRE)
+  extourne_de_id        String?                // Référence si contre-passation
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  chantier              Chantier               @relation(fields: [chantier_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, chantier_id, date_ecriture])
+}
+
+model PisteAudit {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  user_id               String?
+  action                String                 // 'CREER_DECOMPTE', 'APPROUVER_SORTIE_STOCK', 'EXTOURNE'
+  entite_nom            String                 // 'Decompte', 'BonSortie', 'Pointage'
+  entite_id             String
+  details               Json?
+  ip_address            String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  user                  User?                  @relation(fields: [user_id], references: [id])
+
+  @@index([organization_id, entite_nom, entite_id])
+}
 ```

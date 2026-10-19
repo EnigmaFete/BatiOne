@@ -1,96 +1,86 @@
-# AGENTS.md — Autonomous Agent Operating Principles & Engineering Rules
+# AGENTS.md — Règles d'Ingénierie & Principes d'Opération des Agents Autonomes
 
-## 1. Mission & System Overview
-**BatiOne** is a modern ERP and job-costing platform tailored specifically for Construction and Public Works (BTP — Bâtiment et Travaux Publics) enterprises in Morocco. It centralizes site supervision, financial control, material flows, worker time-tracking, and equipment logistics.
+## 1. Mission & Cadre Système
+**BatiOne** est une plateforme SaaS cloud multi-tenant de gestion de chantier et de contrôle des coûts de projets (Job-Costing), conçue en français en priorité (French-first) pour les entreprises du secteur BTP (Bâtiment et Travaux Publics) au Maroc.
 
-All autonomous AI agents (Antigravity, Claude Code, Cursor, GitHub Copilot) working in this repository MUST strictly follow the governance principles, coding standards, and verification gates outlined in this document.
+### Stack Technique Agréée
+- **Frontend** : Next.js + React + TypeScript, TailwindCSS / Token CSS moderne, TanStack Query, Zustand, Next-intl (i18n-ready).
+- **Backend** : NestJS + TypeScript, Architecture Modulaire (Modules, Controllers, Services, DTOs Zod/class-validator).
+- **Base de Données & ORM** : PostgreSQL + Prisma ORM.
+- **Tests Automatisés** : Vitest / Jest, Supertest pour l'intégration, tests unitaires et de sécurité multi-tenant.
 
----
-
-## 2. Core Operating Principles
-
-### 2.1. Rule Zero: Deterministic Verification & No Unverified Assumptions
-- **Never guess**: Inspect existing code, database schemas, and documentation before implementing changes.
-- **Always verify**: After modifying code, run linting, tests, and build checks before declaring a task complete.
-- **Maintain documentation sync**: When changing schemas, API endpoints, or workflows, immediately update the corresponding docs in `docs/`.
-
-### 2.2. Atomic, Phase-Driven Execution
-- Work is organized into numbered execution phases in `docs/phases/`.
-- Never jump ahead to a future phase before the current phase's verification gate has passed and been documented.
-- All code changes must be mapped to an explicit phase objective or bugfix.
-
-### 2.3. Zero Breaking Changes & Safe Migrations
-- Multi-tenant data isolation is non-negotiable (`tenant_id` / `organization_id` strictly checked on every single query and mutation).
-- Database migrations must be forward-compatible, reversible, and accompanied by a corresponding rollback script or verification query.
-- Destructive commands (`DROP`, `TRUNCATE`, bulk deletions without WHERE clauses) require explicit confirmation and safeguards.
+Tous les agents IA (Antigravity, Claude Code, Cursor, GitHub Copilot) intervenant sur ce dépôt doivent respecter strictement les directives ci-dessous.
 
 ---
 
-## 3. Architecture & Code Quality Standards
+## 2. Invariants Métier & Règles Fondamentales
 
-### 3.1. Code Cleanliness & Style
-- Modular, single-responsibility functions and components.
-- Strict typing (TypeScript) or exhaustive JSDoc typing where applicable.
-- No dead code, obsolete comments, console logs in production paths, or temporary hack scripts committed to main.
-- Explicit error handling: Every async operation, external API call, or database query must use structured try/catch or typed error returns.
+### 2.1. Règle Zéro : Vérité Vérifiée & Aucune Affirmation sans Preuve
+- **Interdiction formelle de prétendre que des tests passent** sans les avoir exécutés en direct via le terminal et inspecté le résultat.
+- Ne jamais deviner ni présumer des colonnes de base de données, des routes ou des types sans inspection préalable.
+- Maintien rigoureux de la documentation : toute modification de schéma ou d'API doit immédiatement être répercutée dans `docs/` et `docs/PROGRESS.md`.
 
-### 3.2. Security & Multi-Tenancy Rules
-- **Tenant Scoping**: All database queries must enforce the active tenant boundary. Never query entities across tenants unless executing a super-admin system diagnostic.
-- **Role-Based Access Control (RBAC)**: All endpoints and UI actions must enforce user permissions (`Admin`, `Conducteur de Travaux`, `Chef de Chantier`, `Comptable / DAF`, `Magasinier`).
-- **Input Validation**: Validate and sanitize all client inputs (using Zod or equivalent schemas) at the API boundary before passing them to services or database queries.
-- **Financial Integrity**: Money, quantities, and Moroccan VAT (TVA 20%, 14%, 10%, 7%, 0%) must use integer cents (MAD in centimes) or high-precision decimals to prevent floating-point rounding errors.
+### 2.2. Périmètre Financier : Suivi Opérationnel & Coûts de Chantier
+- **Ce que BatiOne FAIT** : Suivi des budgets de chantiers, engagement des dépenses, contrôle des coûts réels (matériaux, main-d'œuvre, engins, sous-traitance), situations de travaux / décomptes provisoires et définitifs, retenues de garantie, paiements et acomptes de chantier.
+- **Ce que BatiOne NE FAIT PAS** : Comptabilité générale et statutaire légale (Plan Comptable Marocain, liasse fiscale, bilan, compte de résultat officiel). Les données financières opérationnelles sont exportables (Excel / CSV) pour les logiciels comptables tiers.
 
-### 3.3. Performance & Job Site Constraints
-- Construction job sites in Morocco often suffer from intermittent 3G/4G connectivity.
-- Architecture must support offline resilience, lightweight asset loading, fast TTFB, and responsive mobile-first UI for site managers.
-
----
-
-## 4. Agent Workflow & Verification Gates
-
-Before completing any task, an agent MUST run the following checklist:
-
+### 2.3. Cycle de Vie des Enregistrements Sensibles (4 Étapes)
+Tout enregistrement opérationnel sensible (Décomptes, Factures/Dépenses de chantier, Bons de sortie de stock, Feuilles de pointage validées) respecte impérativement le cycle d'états à sens unique :
 ```mermaid
-flowchart TD
-    A[Inspect Code & Docs] --> B[Implement Surgical Changes]
-    B --> C[Execute Unit & Integration Tests]
-    C --> D{Tests Pass?}
-    D -- No --> E[Diagnose & Fix Failure]
-    E --> C
-    D -- Yes --> F[Run Lint & Build Verification]
-    F --> G{Build Clean?}
-    G -- No --> H[Fix Linter / Build Errors]
-    H --> F
-    G -- Yes --> I[Update Documentation & Logs]
-    I --> J[Ready for Commit]
+stateDiagram-v2
+    [*] --> BROUILLON : Création (Draft)
+    BROUILLON --> SOUMIS : Soumission pour revue (Submitted)
+    SOUMIS --> APPROUVE : Validation hiérarchique (Approved)
+    SOUMIS --> BROUILLON : Rejet avec motif
+    APPROUVE --> ENREGISTRE : Scellement opérationnel (Recorded)
+    ENREGISTRE --> [*] : Immuable
+    ENREGISTRE --> EXTOURNE : Contre-passation contrôlée (Reversal)
 ```
+- Un enregistrement `ENREGISTRE` (Recorded) devient **strictement immuable**. Aucune modification ni suppression directe n'est tolérée en base.
+- Seule une **contre-passation contrôlée (extourne / reversal)** est autorisée : création d'un enregistrement symétrique inverse, horodaté, motivé, rattaché à l'original et validé par un utilisateur habilité (`ORG_ADMIN` ou `DAF_COMPTABLE`).
 
-1. **Pre-Flight**:
-   - Read the relevant phase doc in `docs/phases/`.
-   - Verify environment variables and database connectivity.
-2. **Implementation**:
-   - Write clean, well-tested code following the project design system and architecture conventions.
-3. **Verification**:
-   - Run test suite: `npm test` (or relevant test runner).
-   - Run typecheck and linter: `npm run lint` / `npm run build`.
-4. **Documentation**:
-   - Record significant technical decisions in `docs/DECISIONS.md`.
-   - Update phase status and release gates.
+### 2.4. Invariant de Stock : Blocage Absolu des Sorties Excédentaires
+- **Aucun stock négatif n'est autorisé dans BatiOne.**
+- Toute sortie de stock (Bon de Sortie, affectation à un chantier) doit vérifier la quantité réellement disponible dans le magasin source (magasin central ou magasin de chantier) au sein d'une transaction PostgreSQL avec verrou (`SELECT ... FOR UPDATE` ou transaction interactive Prisma).
+- Si `quantité_demandée > quantité_disponible`, l'opération est **rejetée immédiatement** avec une erreur explicite `STOCK_INSUFFISANT`.
 
----
-
-## 5. Directory & File Naming Conventions
-- Documentation: `UPPER_SNAKE_CASE.md` in `docs/` and `docs/phases/`.
-- Frontend Components: `PascalCase.tsx` / `PascalCase.jsx`.
-- Backend Routes/Controllers: `camelCase.js` / `camelCase.ts` or `kebab-case`.
-- Database Migrations: `000_sequential_name.sql`.
-- Unit & Integration Tests: `<module>.test.ts` or `<module>.spec.ts` located in `tests/` or alongside source code.
+### 2.5. Isolation Multi-Tenant Stricte
+- Chaque table contenant des données d'entreprise possède obligatoirement la colonne `organization_id`.
+- Chaque requête, lecture ou écriture, est cloisonnée par l'organisation de l'utilisateur actif via le client Prisma sécurisé (`$extends` / middleware de tenant).
+- Aucune fuite de données inter-organisations n'est admissible.
 
 ---
 
-## 6. Prohibited Practices
-- ❌ Hardcoding credentials, API keys, or database URLs in repository files.
-- ❌ Committing untested database migrations directly to production branches.
-- ❌ Bypassing tenant filtering in queries.
-- ❌ Altering financial records (invoices, payments, validated décomptes) without creating immutable audit trail entries.
-- ❌ Introducing heavy unvetted external dependencies for trivial tasks.
+## 3. Architecture Logique des Modules
+
+Le système est découpé en 9 modules interconnectés :
+1. **Tableaux de Bord (Dashboard)** : Cockpit direction générale et KPIs opérationnels par chantier.
+2. **Projets & Tâches (Projects / Tasks)** : Chantiers, découpage en lots/tâches, jalons, journal de chantier quotidien.
+3. **Finance Opérationnelle (Finance)** : Budgets de chantiers, engagements, dépenses, décomptes provisoires/définitifs, retenue de garantie, trésorerie de chantier.
+4. **Clients & Documents (Clients / Documents)** : Tiers (Maîtres d'Ouvrage, BET), devis, marchés, avenants, attachements, GED de chantier (photos, plans, PV).
+5. **Stocks & Approvisionnements (Stock)** : Catalogue articles, dépôts centraux et magasins chantiers, BC, BL, bons de sortie bloquants, transferts.
+6. **RH & Main d'Œuvre (HR / Labor)** : Répertoire ouvriers (permanents, journaliers, tâcherons), pointage quotidien mobile, acomptes, état préparatoire de paie.
+7. **Parc Matériel & Engins (Equipment)** : Fiches engins, affectations chantiers, compteurs horaires/kilométriques, gasoil, entretien, refacturation interne.
+8. **Écritures Consolidées & Audit (Consolidated Records)** : Grand livre opérationnel consolidé, traçabilité exhaustive de tous les mouvements scellés et des extournes.
+9. **Utilisateurs & Permissions (Users / Permissions)** : Profils multi-tenants, authentification JWT, matrice RBAC adaptée aux métiers du BTP.
+
+---
+
+## 4. Protocole d'Exécution & Portes de Vérification
+
+Avant de déclarer une tâche ou une phase terminée, l'agent doit exécuter et prouver :
+1. **Linting & Formatage** : `npm run lint` sans erreur ni avertissement.
+2. **Contrôle de Typage** : `npm run typecheck` sans erreur TypeScript.
+3. **Exécution des Tests** : `npm test` avec affichage complet de la sortie du terminal.
+4. **Build de Production** : `npm run build` réussi.
+5. **Mise à Jour Documentaire** : Actualisation de `docs/PROGRESS.md` et de la documentation afférente.
+
+---
+
+## 5. Pratiques Proscrites
+- ❌ Implémenter des fonctionnalités métier avant validation formelle de la conception.
+- ❌ Utiliser des nombres à virgule flottante natifs pour les montants financiers (utiliser centimes entiers ou `Decimal`).
+- ❌ Permettre une sortie de stock supérieure à la quantité disponible.
+- ❌ Supprimer ou modifier un enregistrement à l'état `ENREGISTRE` (Recorded) sans passer par une extourne.
+- ❌ Écrire des requêtes SQL ou Prisma sans clause `organization_id`.
+- ❌ Committer des clés secrètes ou des mots de passe en clair.

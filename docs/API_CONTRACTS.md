@@ -1,103 +1,161 @@
-# API_CONTRACTS.md — REST API Specifications
+# API_CONTRACTS.md — Spécifications & Contrats d'API NestJS
 
-## 1. General Principles
+## 1. Principes d'Ingénierie de l'API
 
-### 1.1. Base URL & Protocol
-- Base URL: `/api/v1`
-- Content-Type: `application/json` (except multipart file uploads)
-- Charset: `UTF-8`
+### 1.1. Protocole, Format & Enveloppes
+- **Base URL** : `/api/v1`
+- **Format** : `application/json; charset=utf-8`
+- **Langue des Messages** : Français en premier (*French-first*), codes d'erreur normalisés pour la traduction frontend (`next-intl`).
+- **Authentification & En-têtes** :
+  ```http
+  Authorization: Bearer <jwt_access_token>
+  X-Tenant-ID: <organization_id>
+  ```
 
-### 1.2. Authentication & Headers
-All secured endpoints require a valid JWT Bearer token:
-```http
-Authorization: Bearer <jwt_token>
-X-Tenant-ID: <organization_id>
-```
-
-### 1.3. Standard Response Formats
-
-#### Success Envelope
+### 1.2. Enveloppe de Réponse Succès
 ```json
 {
-  "success": true,
-  "data": { ... },
-  "meta": {
+  "succes": true,
+  "donnees": { ... },
+  "metadonnees": {
     "page": 1,
-    "limit": 25,
-    "total": 142
+    "limite": 25,
+    "total": 142,
+    "total_pages": 6
   }
 }
 ```
 
-#### Error Envelope
+### 1.3. Enveloppe d'Erreur Standardisée
 ```json
 {
-  "success": false,
-  "error": {
-    "code": "RESOURCE_NOT_FOUND",
-    "message": "Le chantier spécifié est introuvable ou n'appartient pas à votre organisation.",
-    "details": []
+  "succes": false,
+  "erreur": {
+    "code": "STOCK_INSUFFISANT",
+    "message": "Sortie de stock refusée : Quantité demandée (50 sac) supérieure à la quantité disponible (12 sac) dans le magasin source.",
+    "champs": [
+      {
+        "champ": "quantite",
+        "regle": "max_disponible",
+        "valeur_actuelle": 12,
+        "valeur_demandee": 50
+      }
+    ],
+    "horodatage": "2026-10-19T19:30:00.000Z"
   }
 }
 ```
 
 ---
 
-## 2. API Endpoints Catalog
+## 2. Contrat Universel du Cycle de Vie (4 États) & Extournes
 
-### 2.1. Authentication & Organization
-| Method | Endpoint | Description | Access |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/auth/login` | Email/password login, returns JWT and user profile | Public |
-| `POST` | `/api/v1/auth/refresh` | Refresh access token via HTTP-only refresh cookie | Public |
-| `GET` | `/api/v1/auth/me` | Fetch active user profile, tenant details & permissions | Authenticated |
-| `PUT` | `/api/v1/organization/profile` | Update corporate details (ICE, RC, Patente, logo) | `ORG_ADMIN` |
+Pour toute ressource opérationnelle sensible (`decomptes`, `bons-sortie`, `pointages`, `depenses`) :
 
-### 2.2. Chantiers (Construction Sites)
-| Method | Endpoint | Description | Access |
+| Méthode | Endpoint | Description | Rôle Requis |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/chantiers` | List all chantiers with filters (`statut`, `ville`, `search`) | All Roles |
-| `POST` | `/api/v1/chantiers` | Create a new chantier project | `ORG_ADMIN`, `CONDUCTEUR` |
-| `GET` | `/api/v1/chantiers/:id` | Detailed view: KPIs, budget vs. real costs, margins | All Roles |
-| `PATCH` | `/api/v1/chantiers/:id` | Update status, budget, key dates, assigned team | `ORG_ADMIN`, `CONDUCTEUR` |
-| `GET` | `/api/v1/chantiers/:id/rentabilite`| Real-time financial health, net margin, cost breakdown | `ORG_ADMIN`, `DAF` |
+| `POST` | `/api/v1/:module/:id/soumettre` | Passe de `BROUILLON` à `SOUMIS` | Créateur / Terrain |
+| `POST` | `/api/v1/:module/:id/approuver` | Passe de `SOUMIS` à `APPROUVE` | `CONDUCTEUR_TRAVAUX` / `DAF` |
+| `POST` | `/api/v1/:module/:id/enregistrer` | Scelle en `ENREGISTRE` (impact réel) | `DAF` / `ORG_ADMIN` |
+| `POST` | `/api/v1/:module/:id/extourner` | Crée une extourne symétrique inverse | `ORG_ADMIN`, `DAF` |
 
-### 2.3. Devis & Bordereau des Prix
-| Method | Endpoint | Description | Access |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/chantiers/:id/devis` | List devis / marché items for a chantier | All Roles |
-| `POST` | `/api/v1/chantiers/:id/devis` | Create devis with itemized bordereau des prix | `ORG_ADMIN`, `CONDUCTEUR` |
-| `POST` | `/api/v1/devis/:id/lignes` | Batch add/update work lines (m², m³, prix unitaire) | `CONDUCTEUR` |
-| `GET` | `/api/v1/devis/:id/export-pdf` | Generate printable Moroccan standard quotation PDF | All Roles |
+#### Payload d'Extourne Contrôlée (`POST /api/v1/:module/:id/extourner`)
+```json
+{
+  "motif": "Erreur de saisie sur le métré de béton - attachement corrigé par le conducteur de travaux",
+  "reference_justificatif": "PV-RECTIF-2026-03"
+}
+```
 
-### 2.4. Décomptes (BTP Monthly Billing)
-| Method | Endpoint | Description | Access |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/chantiers/:id/decomptes` | List cumulative monthly décomptes | All Roles |
-| `POST` | `/api/v1/chantiers/:id/decomptes` | Create new monthly décompte with auto-retenue | `DAF`, `CONDUCTEUR` |
-| `PATCH` | `/api/v1/decomptes/:id/status` | Advance status (`SOUMIS` ➔ `APPROUVE` ➔ `PAYE`) | `ORG_ADMIN`, `DAF` |
-| `GET` | `/api/v1/decomptes/:id/export-pdf`| Official printable Décompte Provisoire / Définitif | All Roles |
+---
 
-### 2.5. Dépenses & Bons de Commande (Cost Control)
-| Method | Endpoint | Description | Access |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/chantiers/:id/depenses` | List expenses filtered by category, date, supplier | All Roles |
-| `POST` | `/api/v1/chantiers/:id/depenses` | Record site expense with receipt upload | `DAF`, `CONDUCTEUR`, `CHEF` |
-| `POST` | `/api/v1/achats/bons-commande` | Issue supplier Bon de Commande (BC) | `CONDUCTEUR`, `MAGASINIER` |
-| `POST` | `/api/v1/achats/bons-livraison` | Register receipt note (BL) signed on site | `CHEF_CHANTIER` |
+## 3. Catalogue des Endpoints par Module
 
-### 2.6. Main d'Œuvre & Pointage
-| Method | Endpoint | Description | Access |
+### 3.1. Module 1 : Authentification & Organisation
+| Méthode | Route | Description | Rôles |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/ouvriers` | Worker registry with daily rates | All Roles |
-| `POST` | `/api/v1/ouvriers` | Add worker (Permanent, Journalier, Tâcheron) | `ORG_ADMIN`, `CONDUCTEUR` |
-| `GET` | `/api/v1/chantiers/:id/pointages`| Get pointage sheet for specified date | All Roles |
-| `POST` | `/api/v1/chantiers/:id/pointages`| Bulk submit daily worker attendance and hours | `CHEF_CHANTIER`, `CONDUCTEUR`|
-| `GET` | `/api/v1/paie/recapitulatif` | Generate payroll summary per worker & site | `ORG_ADMIN`, `DAF` |
+| `POST` | `/api/v1/auth/connexion` | Authentification (Email / Mot de passe) | Public |
+| `POST` | `/api/v1/auth/rafraichir` | Renouvellement du JWT via cookie HTTP-only | Public |
+| `GET` | `/api/v1/auth/moi` | Profil utilisateur connecté & organisation | Tous |
+| `PATCH` | `/api/v1/organisation/profil` | Mise à jour des coordonnées (ICE, RC, Patente) | `ORG_ADMIN` |
 
-### 2.7. Matériel & Engins
-| Method | Endpoint | Description | Access |
+### 3.2. Module 2 : Chantiers & Journal de Chantier
+| Méthode | Route | Description | Rôles |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/engins` | List company machinery, location & status | All Roles |
-| `POST` | `/api/v1/engins/:id/affectation`| Dispatch machine to a specific chantier | `CONDUCTEUR`, `MAGASINIER` |
-| `POST` | `/api/v1/engins/:id/heures` | Log working hours / fuel consumption on site | `CHEF_CHANTIER` |
+| `GET` | `/api/v1/chantiers` | Liste des chantiers avec filtres (statut, ville) | Tous |
+| `POST` | `/api/v1/chantiers` | Création d'un chantier | `ORG_ADMIN`, `CONDUCTEUR` |
+| `GET` | `/api/v1/chantiers/:id` | Détail d'un chantier (KPIs, avancement, lots) | Tous |
+| `PATCH` | `/api/v1/chantiers/:id` | Modification paramètres & statut | `CONDUCTEUR`, `ORG_ADMIN` |
+| `GET` | `/api/v1/chantiers/:id/journal`| Liste des entrées du journal de chantier | Tous |
+| `POST` | `/api/v1/chantiers/:id/journal`| Saisie du journal quotidien (météo, effectifs) | `CHEF_CHANTIER`, `CONDUCTEUR` |
+
+### 3.3. Module 3 : Finance Opérationnelle & Décomptes
+| Méthode | Route | Description | Rôles |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/chantiers/:id/decomptes` | Historique des décomptes provisoires | Tous |
+| `POST` | `/api/v1/chantiers/:id/decomptes` | Génération nouveau décompte mensuel cumulé | `CONDUCTEUR`, `DAF` |
+| `GET` | `/api/v1/decomptes/:id/pdf` | Téléchargement du PDF officiel marocain | Tous |
+| `GET` | `/api/v1/chantiers/:id/depenses` | Liste des dépenses de chantier par catégorie | Tous |
+| `POST` | `/api/v1/chantiers/:id/depenses` | Saisie d'une dépense avec pièce jointe | `CHEF`, `CONDUCTEUR`, `DAF` |
+
+### 3.4. Module 4 : Clients, Devis & Documents
+| Méthode | Route | Description | Rôles |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/tiers` | Répertoire des tiers (Clients, BET, Fournisseurs) | Tous |
+| `POST` | `/api/v1/tiers` | Ajout d'un tiers avec vérification ICE | `ORG_ADMIN`, `DAF` |
+| `GET` | `/api/v1/chantiers/:id/devis` | Consultation du devis / BPU | Tous |
+| `POST` | `/api/v1/devis/:id/lignes/lot` | Enregistrement en masse des lignes de BPU | `CONDUCTEUR` |
+
+### 3.5. Module 5 : Stocks & Approvisionnements (Contrat Bloquant)
+| Méthode | Route | Description | Rôles |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/stock/articles` | Catalogue des articles et stocks par magasin | Tous |
+| `POST` | `/api/v1/stock/bons-commande` | Émission d'un Bon de Commande (BC) | `CONDUCTEUR`, `MAGASINIER` |
+| `POST` | `/api/v1/stock/bons-livraison` | Réception de livraison sur chantier (BL) | `CHEF_CHANTIER`, `MAGASINIER` |
+| `POST` | `/api/v1/stock/bons-sortie` | **Sortie de stock vers chantier (Bloquant)** | `MAGASINIER` |
+
+#### Payload Sortie de Stock (`POST /api/v1/stock/bons-sortie`)
+```json
+{
+  "magasin_source_id": "c8d8b2e1-4567-4f9e-b2d3-112233445566",
+  "chantier_dest_id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "date_sortie": "2026-10-20",
+  "motif": "Coulage dalle étage 1",
+  "lignes": [
+    {
+      "article_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "quantite_sortie": 50
+    }
+  ]
+}
+```
+*Si le stock disponible est < 50, l'API renvoie HTTP 400 `STOCK_INSUFFISANT` et aucune ligne n'est modifiée.*
+
+### 3.6. Module 6 : Main d'Œuvre & Pointage
+| Méthode | Route | Description | Rôles |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/ouvriers` | Liste des ouvriers avec qualifications et taux | Tous |
+| `POST` | `/api/v1/ouvriers` | Création fiche ouvrier (CIN, statut, contrat) | `CONDUCTEUR`, `DAF` |
+| `GET` | `/api/v1/chantiers/:id/pointages`| Grille de pointage pour une date donnée | Tous |
+| `POST` | `/api/v1/chantiers/:id/pointages/lot`| Saisie mobile en masse du pointage journalier | `CHEF_CHANTIER` |
+| `POST` | `/api/v1/ouvriers/:id/acomptes` | Saisie d'un acompte versé sur chantier | `CHEF`, `DAF` |
+
+### 3.7. Module 7 : Parc Matériel & Engins
+| Méthode | Route | Description | Rôles |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/engins` | Inventaire des engins, statut et localisation | Tous |
+| `POST` | `/api/v1/engins/affectations` | Affectation d'un engin à un chantier | `CONDUCTEUR`, `MAGASINIER` |
+| `POST` | `/api/v1/engins/:id/releves` | Saisie relevé compteur horaire & carburant | `CHEF_CHANTIER` |
+
+### 3.8. Module 8 : Écritures Consolidées & Audit
+| Méthode | Route | Description | Rôles |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/audit/ecritures-consolidees`| Consultation du grand livre opérationnel | `ORG_ADMIN`, `DAF` |
+| `GET` | `/api/v1/audit/piste-journal` | Journal d'audit chronologique inaltérable | `ORG_ADMIN` |
+| `GET` | `/api/v1/audit/export-comptable` | Export structuré CSV/Excel pour expert-comptable | `DAF`, `ORG_ADMIN` |
+
+### 3.9. Module 9 : Tableaux de Bord & Analytics
+| Méthode | Route | Description | Rôles |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/dashboard/direction` | Cockpit consolidé pour la Direction Générale | `ORG_ADMIN`, `DAF` |
+| `GET` | `/api/v1/dashboard/chantiers/:id`| Synthèse budgétaire et opérationnelle chantier | Tous |

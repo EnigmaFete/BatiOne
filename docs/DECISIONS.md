@@ -1,58 +1,77 @@
 # DECISIONS.md — Architecture Decision Records (ADR)
 
-## Index of Decisions
-- [ADR-001: Integer Centimes for Financial Calculations](#adr-001-integer-centimes-for-financial-calculations)
-- [ADR-002: Row-Level Shared Database Multi-Tenancy](#adr-002-row-level-shared-database-multi-tenancy)
-- [ADR-003: Offline-First Queue for Mobile Field Operations](#adr-003-offline-first-queue-for-mobile-field-operations)
-- [ADR-004: Server-Side PDF Rendering for BTP Legal Documents](#adr-004-server-side-pdf-rendering-for-btp-legal-documents)
-- [ADR-005: Native Moroccan BTP Billing & Tax Model](#adr-005-native-moroccan-btp-billing--tax-model)
+## Sommaire des Décisions d'Architecture
+- [ADR-001 : Délimitation du Périmètre Financier Opérationnel vs Comptabilité Légale](#adr-001--délimitation-du-périmètre-financier-opérationnel-vs-comptabilité-légale)
+- [ADR-002 : Invariant Strict Anti-Stock Négatif avec Verrouillage Transactionnel](#adr-002--invariant-strict-anti-stock-négatif-avec-verrouillage-transactionnel)
+- [ADR-003 : Cycle de Vie en 4 États et Contre-Passation par Extourne](#adr-003--cycle-de-vie-en-4-états-et-contre-passation-par-extourne)
+- [ADR-004 : Architecture Monorepo NestJS + Next.js + Prisma](#adr-004--architecture-monorepo-nestjs--nextjs--prisma)
+- [ADR-005 : Isolation Multi-Tenant par Extension de Client Prisma](#adr-005--isolation-multi-tenant-par-extension-de-client-prisma)
+- [ADR-006 : Conception en Français d'Abord (French-First) et i18n-Ready](#adr-006--conception-en-français-dabord-french-first-et-i18n-ready)
+- [ADR-007 : Représentation Monétaire en Décimal Fixe Haute Précision](#adr-007--représentation-monétaire-en-décimal-fixe-haute-précision)
+- [ADR-008 : Grand Livre des Écritures Consolidées et Piste d'Audit](#adr-008--grand-livre-des-écritures-consolidées-et-piste-daudit)
 
 ---
 
-### ADR-001: Integer Centimes for Financial Calculations
-- **Status**: Accepted
-- **Context**: BTP contracts in Morocco involve millions of MAD with micro-pricing on unit items (e.g., 14.50 MAD/m³ for excavation, 42.80 MAD/kg for rebar). Floating-point arithmetic (`0.1 + 0.2 = 0.30000000000000004`) causes accumulative penny rounding errors across large bordereaux and monthly décomptes.
-- **Decision**: All financial amounts in the database, API contracts, and calculations are strictly stored and manipulated as integers representing **centimes** (1 MAD = 100 centimes). Conversion to formatted decimals occurs strictly at the presentation layer.
-- **Consequences**:
-  - *Positive*: Zero IEEE 754 rounding drift; 100% deterministic accounting reconciliations.
-  - *Negative*: Developers must remember to multiply by 100 when ingesting user input and divide by 100 when displaying. Enforced via typed helper functions.
+### ADR-001 : Délimitation du Périmètre Financier Opérationnel vs Comptabilité Légale
+- **Statut** : Accepté
+- **Contexte** : Les entreprises de BTP au Maroc utilisent souvent un logiciel de comptabilité statutaire certifié (Sage, Odoo, Cegid, etc.) ou font appel à un cabinet fiduciaire pour la liasse fiscale. BatiOne doit leur apporter ce qui leur manque cruellement : le contrôle des coûts de chantiers en temps réel (Job-Costing) et la facturation client BTP (décomptes).
+- **Décision** : BatiOne se concentre exclusivement sur les finances opérationnelles (budgets de chantiers, engagements, dépenses réelles, décomptes avec retenues de garantie, marges opérationnelles). BatiOne ne génère pas de bilan comptable légal, mais fournit des exports consolidés universels (Excel/CSV/API) pour les progiciels comptables externes.
+- **Conséquences** : Clarté du périmètre, agilité de développement, adoption immédiate sans conflit avec les experts-comptables.
 
 ---
 
-### ADR-002: Row-Level Shared Database Multi-Tenancy
-- **Status**: Accepted
-- **Context**: BatiOne serves multiple Moroccan construction companies of varying sizes (from SMEs with 2 sites to larger contractors with 30+ sites). We needed an architecture that scales cost-effectively while providing ironclad data isolation.
-- **Decision**: Implement a pooled database model where all tenants share the PostgreSQL cluster, with mandatory row-level isolation via `organization_id` on every tenant table.
-- **Consequences**:
-  - *Positive*: Simple schema migrations, unified backups, low infrastructure cost per tenant.
-  - *Negative*: Strict developer discipline required. Automated security test suites must enforce tenant scoping on 100% of queries.
+### ADR-002 : Invariant Strict Anti-Stock Négatif avec Verrouillage Transactionnel
+- **Statut** : Accepté
+- **Contexte** : Dans le BTP, le laxisme dans les sorties de stock (sorties sans stock suffisant en espérant une régularisation ultérieure) masque les vols, les pertes et fausse gravement le coût réel des chantiers.
+- **Décision** : Le système bloque rigoureusement toute sortie de stock excédant la quantité disponible au moment de la transaction. L'opération est exécutée dans une transaction interactive PostgreSQL avec verrou pessimiste (`SELECT ... FOR UPDATE` via Prisma). Si `quantite_sortie > quantite_disponible`, une exception `STOCK_INSUFFISANT` est levée.
+- **Conséquences** : Les stocks reflètent rigoureusement la réalité physique ; les chefs de chantier doivent enregistrer leurs bons de livraison avant de pouvoir déstocker les matériaux.
 
 ---
 
-### ADR-003: Offline-First Queue for Mobile Field Operations
-- **Status**: Accepted
-- **Context**: Moroccan construction sites frequently experience spotty, degraded, or nonexistent cellular reception (e.g. basements, remote roadworks). If the app blocks user actions when offline, site managers will revert to paper notebooks.
-- **Decision**: Implement an IndexedDB offline mutation queue on the mobile web client with idempotency keys. The app allows recording daily pointages and taking BL photos offline, then automatically reconciles and syncs with the server when network connectivity is restored.
-- **Consequences**:
-  - *Positive*: Uninterrupted on-site experience; high adoption by Chefs de Chantier.
-  - *Negative*: Requires conflict-resolution logic and idempotency headers on the backend.
+### ADR-003 : Cycle de Vie en 4 États et Contre-Passation par Extourne
+- **Statut** : Accepté
+- **Contexte** : Les transactions opérationnelles sensibles (décomptes de plusieurs millions de MAD, sorties de matériaux de valeur, pointages ouvriers) ne peuvent pas être modifiées ou supprimées après validation sans risque de fraude ou d'incohérence historique.
+- **Décision** : Adoption d'une machine d'états à 4 étapes :
+  `BROUILLON` (Draft) ➔ `SOUMIS` (Submitted) ➔ `APPROUVE` (Approved) ➔ `ENREGISTRE` (Recorded).
+  Tout enregistrement `ENREGISTRE` est scellé et immuable. Les corrections s'opèrent impérativement par une écriture d'**extourne contrôlée** (écriture symétrique inverse motivée).
+- **Conséquences** : Piste d'audit irréfutable, conformité avec les standards de contrôle interne d'entreprise.
 
 ---
 
-### ADR-004: Server-Side PDF Rendering for BTP Legal Documents
-- **Status**: Accepted
-- **Context**: Official submissions in Morocco (Décomptes, Attachements, Devis, Marchés) require exact typographical layouts, official company headers (ICE, RC, IF), signature boxes, and stamp locations. Client-side browser printing creates inconsistent pagination and layout breakage across browsers.
-- **Decision**: Generate all customer-facing and government-ready PDFs server-side using a deterministic rendering engine.
-- **Consequences**:
-  - *Positive*: Pixel-perfect, identical legal PDF documents across all operating systems and devices.
-  - *Negative*: Adds modest CPU overhead on the backend during heavy batch export operations; mitigated via background queuing if necessary.
+### ADR-004 : Architecture Monorepo NestJS + Next.js + Prisma
+- **Statut** : Accepté
+- **Contexte** : Le système nécessite un backend robuste avec injection de dépendances et architecture d'entreprise pour les règles métier complexes (NestJS), couplé à un frontend moderne, réactif et optimisé pour le mobile (Next.js), tout en partageant des types TypeScript stricts et le schéma de base de données.
+- **Décision** : Structuration en monorepo (`apps/web`, `apps/api`, `packages/database`, `packages/shared-types`).
+- **Conséquences** : Typage de bout en bout de la base de données jusqu'à l'écran, réutilisation des DTOs, isolation claire des responsabilités.
 
 ---
 
-### ADR-005: Native Moroccan BTP Billing & Tax Model
-- **Status**: Accepted
-- **Context**: Generic SaaS invoicing platforms do not support the nuances of Moroccan construction contracts: cumulative décomptes with deduction of previous payments, contractual Retenue de Garantie (5% or 10% held until Réception Définitive), and specific VAT categories.
-- **Decision**: Treat Décomptes as first-class citizens distinct from standard commercial invoices. Build the mathematical formula for cumulative attachment billing natively into the core domain model.
-- **Consequences**:
-  - *Positive*: Exact match with Moroccan public and private procurement standards; major competitive differentiator.
-  - *Negative*: Requires domain-specific onboarding for engineers unfamiliar with BTP contract law.
+### ADR-005 : Isolation Multi-Tenant par Extension de Client Prisma
+- **Statut** : Accepté
+- **Contexte** : Le modèle SaaS multi-tenant héberge plusieurs entreprises concurrentes sur la même base PostgreSQL. Tout oubli d'une clause `WHERE organization_id = ...` par un développeur entraînerait une fuite de données inacceptable.
+- **Décision** : Utiliser les extensions de client Prisma (`$extends`) au sein du middleware NestJS pour injecter automatiquement le filtre `organization_id` sur toutes les opérations de lecture et d'écriture des tables tenant.
+- **Conséquences** : Sécurité garantie au niveau de l'infrastructure d'accès aux données, indépendante de la vigilance du développeur sur chaque endpoint.
+
+---
+
+### ADR-006 : Conception en Français d'Abord (French-First) et i18n-Ready
+- **Statut** : Accepté
+- **Contexte** : La langue d'usage du secteur BTP au Maroc pour l'ingénierie, la gestion contractuelle et administrative est le français, tout en prévoyant une extension naturelle vers l'arabe (notamment pour les interfaces des chefs de chantier sur le terrain) et l'anglais.
+- **Décision** : Toute l'interface utilisateur, les modèles de documents PDF, les logs métiers et les messages d'erreur sont rédigés en français en première intention. Les textes de l'interface sont gérés via des fichiers de ressources localisables (`next-intl`), avec support prévu du sens de lecture droite-à-gauche (RTL) pour l'arabe.
+- **Conséquences** : Adéquation immédiate avec le marché cible marocain et extensibilité future sans refactoring de code.
+
+---
+
+### ADR-007 : Représentation Monétaire en Décimal Fixe Haute Précision
+- **Statut** : Accepté
+- **Contexte** : Les calculs de métrés et de TVA sur des marchés de construction génèrent des écarts financiers inacceptables si des types à virgule flottante standard (Float/Double) sont employés.
+- **Décision** : Utiliser systématiquement `Prisma.Decimal` avec type SQL `DECIMAL(14, 2)` pour les montants monétaires en MAD et `DECIMAL(12, 3)` pour les quantités de métrés.
+- **Conséquences** : Exactitude arithmétique rigoureuse sans dérive de virgule flottante.
+
+---
+
+### ADR-008 : Grand Livre des Écritures Consolidées et Piste d'Audit
+- **Statut** : Accepté
+- **Contexte** : Pour suivre la rentabilité réelle et identifier l'origine de chaque coût (stock consommé, journée d'ouvrier pointée, heure d'engin imputée, facture sous-traitant reçue), le système doit disposer d'une vue consolidée de tous les flux.
+- **Décision** : Chaque mouvement opérationnel scellé génère automatiquement une ligne dans la table `EcritureConsolidee` (débit/crédit rattaché à un chantier et une catégorie de dépense) ainsi qu'un enregistrement dans `PisteAudit`.
+- **Conséquences** : Calcul instantané des marges réelles de chaque chantier sans jointures lourdes sur 8 tables distinctes.
