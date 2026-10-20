@@ -69,3 +69,18 @@
   - **Test manuel navigateur réel** (Browser pane) : inscription complète (Atlas Construction SARL) → connexion automatique → tableau de bord rendu avec checklist d'onboarding et KPIs à 0,00 MAD → rechargement de page avec perte du jeton en mémoire → session restaurée via le cookie de refresh sans ressaisie des identifiants. Aucune erreur console.
 - **Non couvert à ce stade** (transparence explicite, cf. Règle Zéro) : RLS PostgreSQL (Couche 2), MFA, reset de mot de passe, invitation par email/WhatsApp, rotation JWT vers RS256/ES256, endpoints au-delà d'Organization/User (Chantiers, Finance, etc. — Phases 02+).
 
+### 2026-10-20 : Intégration du Logo Officiel BatiOne
+- **Assets de marque générés & intégrés** dans `apps/web/public/` :
+  - `apps/web/public/brand/logo.png` : PNG haute résolution (512x512) transparent avec anti-aliasing sans halo et suppression des impuretés de trame.
+  - `apps/web/public/brand/logo-full.jpg` : version carrée d'origine avec texture papier de luxe.
+  - `apps/web/public/brand/logo-original.jpg` : image source brute (1024x1024).
+  - `apps/web/public/favicon.ico` et `apple-touch-icon.png` : icônes pour onglets de navigateur et écrans d'accueil mobiles.
+- **Composant UI `Logo` mis à jour** ([`Logo.tsx`](file:///Users/mohamedtazi/Desktop/ANTIGRAVITY%20FOLDER/BatiOne/apps/web/src/components/Logo.tsx)) :
+  - Remplacement du SVG mockup temporaire par le monogramme officiel haute définition (Next.js `<Image>` optimisé avec `priority={true}` pour le LCP).
+  - Support de l'orientation verticale (page de connexion) et horizontale, gestion du thème clair/sombre, et typographie bicolore ("Bati" encre, "One" or/ocre).
+- **Vérifications exécutées** :
+  - `npm run lint` → 0 erreur/avertissement.
+  - `npm run typecheck` → 0 erreur TypeScript sur tous les workspaces.
+  - `npm test` → 36/36 tests verts (5 suites de test).
+  - `npm run build` → Build de production Next.js réussi (routes pré-rendues, static assets optimisés).
+

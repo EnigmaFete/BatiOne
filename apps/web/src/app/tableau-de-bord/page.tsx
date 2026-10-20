@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BarChart3, Wallet, PieChart, HardHat, Building2 } from 'lucide-react';
 import { api, ApiError, definirJetonAcces, obtenirJetonAcces } from '@/lib/api';
 import { formatMAD } from '@/lib/format';
 import { KpiCard } from '@/components/KpiCard';
+import { OnboardingChecklist, type EtapeOnboarding } from '@/components/OnboardingChecklist';
+import { ConstructionIllustration } from '@/components/ConstructionIllustration';
 
 interface Moi {
   prenom: string;
@@ -13,15 +16,15 @@ interface Moi {
   organization: { nom: string; onboarding_complete: boolean };
 }
 
-const ETAPES_ONBOARDING = [
-  { cle: 'profil', label: 'Profil de l’entreprise (ICE, logo, adresse)' },
-  { cle: 'utilisateurs', label: 'Inviter votre équipe' },
-  { cle: 'clients', label: 'Ajouter votre premier client' },
-  { cle: 'projets', label: 'Créer votre premier projet' },
-  { cle: 'ouvriers', label: 'Enregistrer vos collaborateurs' },
-  { cle: 'stock', label: 'Ajouter vos premiers articles de stock' },
-  { cle: 'materiel', label: 'Enregistrer votre matériel' },
-  { cle: 'documents', label: 'Choisir vos modèles de documents' },
+const ETAPES_ONBOARDING: EtapeOnboarding[] = [
+  { cle: 'profil', label: 'Profil de l’entreprise (ICE, logo, adresse)', fait: true },
+  { cle: 'utilisateurs', label: 'Inviter votre équipe', fait: false },
+  { cle: 'clients', label: 'Ajouter votre premier client', fait: false },
+  { cle: 'projets', label: 'Créer votre premier projet', fait: false },
+  { cle: 'ouvriers', label: 'Enregistrer vos collaborateurs', fait: false },
+  { cle: 'stock', label: 'Ajouter vos premiers articles de stock', fait: false },
+  { cle: 'materiel', label: 'Enregistrer votre matériel', fait: false },
+  { cle: 'documents', label: 'Choisir vos modèles de documents', fait: false },
 ];
 
 export default function PageTableauDeBord() {
@@ -64,50 +67,34 @@ export default function PageTableauDeBord() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 'var(--batione-font-size-xl)', marginBottom: 4 }}>
-        Bonjour {moi.prenom} 👋
-      </h1>
-      <p style={{ color: 'var(--batione-ink-500)', marginTop: 0 }}>{moi.organization.nom}</p>
+      <div
+        style={{
+          position: 'relative',
+          overflow: 'hidden',
+          marginBottom: 'var(--batione-space-5)',
+          padding: 'var(--batione-space-2) 0 var(--batione-space-4)',
+        }}
+      >
+        <h1 style={{ fontSize: 'var(--batione-font-size-xl)', marginBottom: 4, position: 'relative', zIndex: 1 }}>
+          Bonjour {moi.prenom} 👋
+        </h1>
+        <p style={{ color: 'var(--batione-ink-500)', margin: 0, position: 'relative', zIndex: 1 }}>
+          {moi.organization.nom}
+        </p>
+        <ConstructionIllustration />
+      </div>
 
-      {!moi.organization.onboarding_complete && (
-        <div className="bo-card" style={{ marginBottom: 'var(--batione-space-5)' }}>
-          <h2 style={{ fontSize: 'var(--batione-font-size-lg)', marginTop: 0 }}>
-            Finalisez la mise en route de votre espace
-          </h2>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            {ETAPES_ONBOARDING.map((etape, index) => (
-              <li
-                key={etape.cle}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--batione-space-3)',
-                  padding: 'var(--batione-space-2) 0',
-                  borderBottom:
-                    index < ETAPES_ONBOARDING.length - 1 ? '1px solid var(--batione-ink-100)' : 'none',
-                }}
-              >
-                <span
-                  className={`bo-badge ${index === 0 ? 'bo-badge--success' : 'bo-badge--warning'}`}
-                  style={{ minWidth: 70, justifyContent: 'center' }}
-                >
-                  {index === 0 ? 'Fait' : 'À faire'}
-                </span>
-                <span>{etape.label}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {!moi.organization.onboarding_complete && <OnboardingChecklist etapes={ETAPES_ONBOARDING} />}
 
       <div style={{ display: 'flex', gap: 'var(--batione-space-4)', marginBottom: 'var(--batione-space-5)' }}>
-        <KpiCard titre="Revenu encaissé" valeur={formatMAD(0)} sousTitre="Aucune donnée" />
-        <KpiCard titre="Dépenses" valeur={formatMAD(0)} sousTitre="Aucune donnée" />
-        <KpiCard titre="Marge nette" valeur={formatMAD(0)} sousTitre="Aucune donnée" />
-        <KpiCard titre="Projets actifs" valeur="0" tendance="warning" sousTitre="Créez votre premier projet" />
+        <KpiCard icon={BarChart3} titre="Revenu encaissé" valeur={formatMAD(0)} tendance="info" sousTitre="Aucune donnée" />
+        <KpiCard icon={Wallet} titre="Dépenses" valeur={formatMAD(0)} tendance="danger" sousTitre="Aucune donnée" />
+        <KpiCard icon={PieChart} titre="Marge nette" valeur={formatMAD(0)} tendance="success" sousTitre="Aucune donnée" />
+        <KpiCard icon={HardHat} titre="Projets actifs" valeur="0" tendance="warning" sousTitre="Créez votre premier projet" />
       </div>
 
       <div className="bo-card bo-empty-state">
+        <Building2 size={40} color="var(--batione-ink-300)" style={{ marginBottom: 'var(--batione-space-3)' }} aria-hidden />
         <p style={{ fontSize: 'var(--batione-font-size-lg)', fontWeight: 600, color: 'var(--batione-ink-800)' }}>
           Aucun projet pour le moment
         </p>
