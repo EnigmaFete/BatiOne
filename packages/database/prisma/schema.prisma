@@ -1,0 +1,119 @@
+// BatiOne — Schéma Prisma
+//
+// Statut : ce fichier est l'implémentation RÉELLE et migrée (contrairement à
+// docs/DATABASE_SCHEMA.md qui reste une CIBLE de conception non vérifiée, cf. son
+// bandeau de statut). Seuls les modèles nécessaires aux Phases 00 et 01 (socle +
+// multi-tenant + authentification + RBAC) sont déclarés ici pour l'instant.
+//
+// Les modèles des Phases 02 à 12 (Chantiers, Finance, Stock, RH/Paie, Matériel,
+// Documents, Notifications...) décrits dans docs/DATABASE_SCHEMA.md seront ajoutés
+// phase par phase, chacun avec sa propre migration validée — jamais en bloc non
+// testé (cf. AGENTS.md §2.1, Règle Zéro).
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
+/// Rôles métier BatiOne (ADR-009 — 11 valeurs : 10 rôles d'organisation + SUPERADMIN plateforme).
+/// Doit rester strictement synchronisé avec `packages/shared-types/src/roles.ts`.
+enum RoleUtilisateur {
+  SUPERADMIN // Administration plateforme (hors organisation cliente)
+  ORG_ADMIN // Propriétaire / Directeur Général
+  GESTIONNAIRE // Manager générique
+  CONDUCTEUR_TRAVAUX // Chef de projet travaux
+  CHEF_CHANTIER // Responsable terrain
+  DAF_COMPTABLE // Responsable financier
+  RH_PAIE // Responsable RH & Paie
+  MAGASINIER // Gestionnaire des stocks et dépôts
+  GESTIONNAIRE_MATERIEL // Gestionnaire parc matériel/équipement
+  EMPLOYE // Employé/Ouvrier — accès self-service
+  LECTEUR // Lecture seule
+}
+
+// -------------------------------------------------------------
+// MODULE 1 : ORGANISATION & UTILISATEURS (MULTI-TENANCY)
+// -------------------------------------------------------------
+
+model Organization {
+  id                          String    @id @default(uuid())
+  nom                         String
+  ice                         String    @unique // Identifiant Commun de l'Entreprise
+  rc                          String? // Registre de Commerce
+  if_num                      String? // Identifiant Fiscal
+  patente                     String?
+  cnss_employeur              String? // Numéro d'affiliation CNSS employeur
+  secteur_activite            String? // 'CONSTRUCTION', 'EVENEMENTIEL', 'AGENCE', 'SERVICES', 'NEGOCE', 'AUTRE'
+  adresse                     String?
+  ville                       String    @default("Casablanca")
+  telephone                   String?
+  email                       String?
+  devise                      String    @default("MAD")
+  langue_defaut               String    @default("fr") // 'fr', 'ar', 'en'
+  logo_url                    String?
+  rib                         String?
+  banque                      String?
+  numerotation_devis          String    @default("DEV-{YYYY}-{SEQ:4}")
+  numerotation_facture        String    @default("FAC-{YYYY}-{SEQ:4}")
+  payroll_config_validated_at DateTime? // Non nul seulement après validation explicite par le comptable
+  onboarding_complete         Boolean   @default(false)
+  created_at                  DateTime  @default(now())
+  updated_at                  DateTime  @updatedAt
+
+  users User[]
+
+  @@map("organizations")
+}
+
+model User {
+  id               String          @id @default(uuid())
+  organization_id  String
+  nom              String
+  prenom           String
+  email            String          @unique
+  password_hash    String
+  role             RoleUtilisateur @default(LECTEUR)
+  telephone        String?
+  cin              String? // Carte d'Identité Nationale
+  langue_preferee  String          @default("fr") // 'fr', 'ar', 'en'
+  actif            Boolean         @default(true)
+  derniere_connexion_at DateTime?
+  tentatives_echouees   Int        @default(0)
+  verrouille_jusqu_a    DateTime?
+  created_by       String?
+  updated_by       String?
+  created_at       DateTime        @default(now())
+  updated_at       DateTime        @updatedAt
+  deleted_at       DateTime?
+
+  organization     Organization    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  refreshTokens    RefreshToken[]
+
+  @@index([organization_id, role])
+  @@map("users")
+}
+
+/// Jetons de rafraîchissement JWT — stockés hashés, un par session active, révocables individuellement.
+model RefreshToken {
+  id              String    @id @default(uuid())
+  user_id         String
+  token_hash      String    @unique
+  expires_at      DateTime
+  revoked_at      DateTime?
+  user_agent      String?
+  ip_address      String?
+  created_at      DateTime  @default(now())
+
+  user            User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("refresh_tokens")
+}

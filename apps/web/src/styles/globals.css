@@ -1,0 +1,140 @@
+@import './tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--batione-bg);
+  color: var(--batione-ink-900);
+  font-family: var(--batione-font-sans);
+  font-size: var(--batione-font-size-base);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---------------------------------------------------------------- */
+/* Composants de base — vocabulaire UI partagé, remplaçable plus tard */
+/* ---------------------------------------------------------------- */
+
+.bo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--batione-space-2);
+  min-height: var(--batione-touch-target);
+  padding: 0 var(--batione-space-5);
+  border-radius: var(--batione-radius-md);
+  border: 1px solid transparent;
+  font-size: var(--batione-font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.bo-btn:hover {
+  filter: brightness(0.95);
+}
+
+.bo-btn--primary {
+  background: var(--batione-primary);
+  color: white;
+}
+
+.bo-btn--secondary {
+  background: var(--batione-surface);
+  color: var(--batione-ink-800);
+  border-color: var(--batione-ink-300);
+}
+
+.bo-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bo-card {
+  background: var(--batione-surface);
+  border-radius: var(--batione-radius-lg);
+  box-shadow: var(--batione-shadow-sm);
+  padding: var(--batione-space-5);
+}
+
+.bo-input {
+  display: block;
+  width: 100%;
+  min-height: var(--batione-touch-target);
+  padding: 0 var(--batione-space-3);
+  border: 1px solid var(--batione-ink-300);
+  border-radius: var(--batione-radius-sm);
+  font-size: var(--batione-font-size-base);
+  background: var(--batione-surface);
+  color: var(--batione-ink-900);
+}
+
+.bo-input:focus {
+  outline: 2px solid var(--batione-primary);
+  outline-offset: 1px;
+}
+
+.bo-label {
+  display: block;
+  font-size: var(--batione-font-size-sm);
+  font-weight: 600;
+  color: var(--batione-ink-700);
+  margin-bottom: var(--batione-space-2);
+}
+
+.bo-field {
+  margin-bottom: var(--batione-space-4);
+}
+
+.bo-error-text {
+  color: var(--batione-danger);
+  font-size: var(--batione-font-size-sm);
+  margin-top: var(--batione-space-2);
+}
+
+.bo-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--batione-space-2);
+  border-radius: 999px;
+  font-size: var(--batione-font-size-xs);
+  font-weight: 600;
+}
+
+.bo-badge--success {
+  background: var(--batione-success-soft);
+  color: var(--batione-success);
+}
+
+.bo-badge--warning {
+  background: var(--batione-warning-soft);
+  color: var(--batione-warning);
+}
+
+.bo-badge--danger {
+  background: var(--batione-danger-soft);
+  color: var(--batione-danger);
+}
+
+.bo-badge--info {
+  background: var(--batione-info-soft);
+  color: var(--batione-info);
+}
+
+.bo-empty-state {
+  text-align: center;
+  padding: var(--batione-space-8);
+  color: var(--batione-ink-500);
+}

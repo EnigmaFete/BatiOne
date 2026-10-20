@@ -19,7 +19,14 @@ gantt
     Phase 07 : Parc Matériel & Imputation Engins:p07, after p06, 2w
     section Consolidation & Pilotage
     Phase 08 : Grand Livre, Audit & Dashboards  :p08, after p07, 2w
+    section Extension Multi-Métiers (ADR-009)
+    Phase 09 : Devis & Factures Génériques      :p09, after p08, 2w
+    Phase 10 : Paie Marocaine & Bulletins       :p10, after p09, 3w
+    Phase 11 : Matériel, RH Étendue & Documents :p11, after p10, 2w
+    Phase 12 : Notifications & Automatisation   :p12, after p11, 1w
 ```
+
+> **Note (2026-10-20, ADR-009)** : les Phases 09–12 ci-dessous élargissent le périmètre initial BTP-only vers la plateforme multi-métiers complète demandée par le produit. Elles sont documentées ici au niveau jalon ; le détail par étape (`docs/phases/PHASE_09.md` à `PHASE_12.md`) sera rédigé immédiatement avant leur démarrage, une fois les Phases 00–01 (socle + auth) vérifiées.
 
 ---
 
@@ -77,3 +84,25 @@ gantt
 - Mécanisme d'extourne contrôlée avec motif obligatoire.
 - Tableaux de bord exécutifs (Direction Générale) et synthèses par chantier.
 - Exports structurés (Excel / CSV) pour les progiciels de comptabilité légale externes.
+
+### Phase 09 : Clients, Devis & Factures Génériques (ADR-009)
+- Répertoire `Client` unifié (tous secteurs), `Quotation`/`Invoice` génériques avec numérotation paramétrable.
+- Conversion devis ➔ facture et/ou projet ; paiements partiels, relances d'échéance.
+- Génération PDF conforme aux mentions légales marocaines (ICE, IF, RC, TVA).
+- Coexistence explicite avec le flux BPU/Décompte BTP (Phase 03/04) — l'UI distingue les deux flux par type de projet.
+
+### Phase 10 : Paie Marocaine, Bulletins & RH Étendue (ADR-009)
+- Page « Règles de paie » (`PayrollRule`) paramétrable par date d'effet — aucun taux codé en dur.
+- Moteur de calcul du bulletin (`Payslip`) : brut, cotisations CNSS/AMO, IR, net, charges patronales.
+- Cycle `brouillon → soumis → approuvé → enregistré`, verrouillage après approbation, génération en lot.
+- Blocage de l'état `ENREGISTRE` si `Organization.payroll_config_validated_at` n'est pas renseigné par le comptable de l'organisation.
+- Registre `Worker` complet (contrats, documents, situation familiale) et export CNSS/AMO/IR.
+
+### Phase 11 : Matériel Générique, Documents & Équipement (ADR-009)
+- Généralisation du parc matériel (`Equipment`/`EquipmentAssignment`) au-delà des engins BTP.
+- Moteur de documents (`DocumentTemplate`/`GeneratedDocument`) : modèles multi-langues (FR/AR RTL/EN), variables, partage à expiration.
+- Dossiers et fichiers de projet génériques (structure de dossiers personnalisable, prévisualisation, tags).
+
+### Phase 12 : Notifications & Automatisation (ADR-009)
+- Notifications in-app et email pour tâches, approbations, échéances, stock faible, retours matériel en retard.
+- Préférences de notification par utilisateur ; digest quotidien/hebdomadaire optionnel.

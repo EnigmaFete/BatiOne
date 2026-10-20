@@ -1,0 +1,61 @@
+/*
+ * BatiOne — Design Tokens (UI temporaire v1)
+ * Objectif : séparer strictement les valeurs visuelles de la logique métier pour permettre un
+ * remplacement complet de l'UI plus tard sans toucher aux appels API/services (cf. consigne
+ * produit "UI temporaire mais remplaçable").
+ */
+
+:root {
+  /* Couleurs de marque */
+  --batione-primary: #d97706; /* Amber Construction Gold */
+  --batione-primary-strong: #b45309;
+  --batione-primary-soft: #fef3c7;
+
+  /* Neutres (Slate Navy) */
+  --batione-ink-900: #0f172a;
+  --batione-ink-800: #1e293b;
+  --batione-ink-700: #334155;
+  --batione-ink-500: #64748b;
+  --batione-ink-300: #cbd5e1;
+  --batione-ink-100: #f1f5f9;
+  --batione-surface: #ffffff;
+  --batione-bg: #f8fafc;
+
+  /* Couleurs fonctionnelles */
+  --batione-success: #059669;
+  --batione-success-soft: #d1fae5;
+  --batione-warning: #d97706;
+  --batione-warning-soft: #fef3c7;
+  --batione-danger: #dc2626;
+  --batione-danger-soft: #fee2e2;
+  --batione-info: #2563eb;
+  --batione-info-soft: #dbeafe;
+
+  /* Typographie */
+  --batione-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --batione-font-size-xs: 0.75rem;
+  --batione-font-size-sm: 0.875rem;
+  --batione-font-size-base: 1rem;
+  --batione-font-size-lg: 1.125rem;
+  --batione-font-size-xl: 1.5rem;
+  --batione-font-size-2xl: 2rem;
+
+  /* Espacement (échelle 4px) */
+  --batione-space-1: 4px;
+  --batione-space-2: 8px;
+  --batione-space-3: 12px;
+  --batione-space-4: 16px;
+  --batione-space-5: 24px;
+  --batione-space-6: 32px;
+  --batione-space-8: 48px;
+
+  /* Rayons & ombres */
+  --batione-radius-sm: 6px;
+  --batione-radius-md: 10px;
+  --batione-radius-lg: 16px;
+  --batione-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --batione-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+
+  /* Zone tactile minimale (mobile chantier) */
+  --batione-touch-target: 44px;
+}

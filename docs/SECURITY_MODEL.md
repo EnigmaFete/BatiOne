@@ -13,21 +13,27 @@ Chaque organisation cliente constitue une cellule de données étanche. Aucune d
 
 ---
 
-## 2. Matrice RBAC des Permissions (6 Rôles Métiers BTP)
+## 2. Matrice RBAC des Permissions (11 Rôles — cf. ADR-009)
 
-| Module & Action | SUPERADMIN | ORG_ADMIN (Gérant) | CONDUCTEUR DE TRAVAUX | CHEF DE CHANTIER | DAF / COMPTABLE | MAGASINIER |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Gestion Société & Paramètres** | Total | Total | Aucun | Aucun | Lecture seule | Aucun |
-| **Création & Gestion Chantiers** | Total | Total | Total (Assignés) | Lecture seule | Lecture seule | Aucun |
-| **Saisie Journal de Chantier** | Total | Total | Total | Total (Assigné) | Lecture seule | Aucun |
-| **Création Devis & BPU** | Total | Total | Total | Aucun | Lecture seule | Aucun |
-| **Approbation Décomptes (Provisoires)**| Total | Total | Approbation | Aucun | Approbation/Scellement | Aucun |
-| **Sortie de Stock (Bons de Sortie)** | Total | Total | Demande | Réception chantier | Contrôle | Saisie & Déstockage |
-| **Saisie Pointage Journalier** | Total | Total | Validation | Saisie terrain | Contrôle paie | Aucun |
-| **Validation Définitive Paie & Acomptes**| Total | Total | Consultation | Saisie acomptes | Validation & Paiement | Aucun |
-| **Affectation du Parc d'Engins** | Total | Total | Planification | Relevé compteur | Contrôle coût | Gestion atelier |
-| **Déclenchement d'une Extourne** | Total | Total | Demande motivée | Interdit | Validation & Exécution| Interdit |
-| **Consultation Grand Livre Consolidé** | Total | Total | Synthèse chantier | Aucun | Totalité | Aucun |
+> Élargie le 2026-10-20 de 6 à 11 rôles (ADR-009). Les 6 rôles BTP d'origine conservent exactement les permissions déjà actées ; les 5 nouveaux rôles (`GESTIONNAIRE`, `RH_PAIE`, `GESTIONNAIRE_MATERIEL`, `EMPLOYE`, `LECTEUR`) sont ajoutés pour couvrir le périmètre élargi.
+
+| Module & Action | SUPERADMIN | ORG_ADMIN | GESTIONNAIRE | CONDUCTEUR TRAVAUX | CHEF CHANTIER | DAF/COMPTABLE | RH_PAIE | MAGASINIER | GEST. MATÉRIEL | EMPLOYE | LECTEUR |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Gestion Société & Paramètres** | Total | Total | Aucun | Aucun | Aucun | Lecture seule | Aucun | Aucun | Aucun | Aucun | Aucun |
+| **Gestion Utilisateurs & Rôles** | Total | Total | Aucun | Aucun | Aucun | Aucun | Aucun | Aucun | Aucun | Aucun | Aucun |
+| **Création & Gestion Projets/Chantiers** | Total | Total | Total | Total (Assignés) | Lecture seule | Lecture seule | Aucun | Aucun | Aucun | Lecture (Assignés) | Lecture seule |
+| **Saisie Journal de Chantier / Tâches** | Total | Total | Total | Total | Total (Assigné) | Lecture seule | Aucun | Aucun | Aucun | Saisie (Assigné) | Lecture seule |
+| **Devis & Factures (BPU et génériques)** | Total | Total | Total | Total | Aucun | Approbation/Scellement | Aucun | Aucun | Aucun | Aucun | Lecture seule |
+| **Approbation Décomptes (Provisoires)** | Total | Total | Approbation | Approbation | Aucun | Approbation/Scellement | Aucun | Aucun | Aucun | Aucun | Lecture seule |
+| **Dépenses & Encaissements** | Total | Total | Total | Saisie | Saisie | Validation & Scellement | Aucun | Aucun | Aucun | Aucun | Lecture seule |
+| **Sortie de Stock (Bons de Sortie)** | Total | Total | Contrôle | Demande | Réception chantier | Contrôle | Aucun | Saisie & Déstockage | Aucun | Aucun | Lecture seule |
+| **Saisie Pointage Journalier** | Total | Total | Validation | Validation | Saisie terrain | Contrôle | Contrôle paie | Aucun | Aucun | Saisie (soi-même) | Lecture seule |
+| **Paie : Règles, Bulletins & Approbation** | Total | Total | Aucun | Aucun | Aucun | Validation & Paiement | Total | Aucun | Aucun | Lecture (son bulletin) | Aucun |
+| **Acomptes Ouvriers** | Total | Total | Validation | Consultation | Saisie acomptes | Validation & Paiement | Validation | Aucun | Aucun | Aucun | Aucun |
+| **Affectation Matériel/Engins** | Total | Total | Planification | Planification | Relevé compteur | Contrôle coût | Aucun | Aucun | Gestion totale | Lecture (Assigné) | Lecture seule |
+| **Déclenchement d'une Extourne** | Total | Total | Demande motivée | Demande motivée | Interdit | Validation & Exécution | Validation (paie) | Interdit | Interdit | Interdit | Interdit |
+| **Consultation Grand Livre Consolidé** | Total | Total | Synthèse | Synthèse projet | Aucun | Totalité | Synthèse paie | Aucun | Synthèse matériel | Aucun | Lecture seule (si autorisé) |
+| **Génération de Documents (devis, factures, attestations…)** | Total | Total | Total | Selon type | Selon type | Selon type (finance) | Selon type (RH/paie) | Aucun | Selon type (matériel) | Aucun | Aucun |
 
 ---
 

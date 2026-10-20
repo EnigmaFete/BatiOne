@@ -1,7 +1,41 @@
 # BatiOne
 
-> **Pilotez vos chantiers, maîtrisez votre rentabilité.**
-> Gérez projets, finances, matériaux, équipes et matériel depuis une seule plateforme — pensée pour les entreprises BTP au Maroc.
+> **Gérez vos projets, votre argent et vos équipes en un seul endroit.**
+> Plateforme SaaS multi-tenant de gestion d'entreprise pour les PME marocaines (BTP/rénovation, événementiel, agences, services, négoce) — projets, finances, clients, stocks, matériel, RH et paie marocaine. Voir `docs/DECISIONS.md` ADR-009 pour l'historique de cadrage (de l'outil BTP initial à la plateforme multi-métiers actuelle).
+
+---
+
+## 🚀 Démarrage Local
+
+Prérequis : Node.js ≥ 20, Docker (pour PostgreSQL local).
+
+```bash
+# 1. Démarrer PostgreSQL local
+docker compose up -d postgres
+
+# 2. Installer les dépendances du monorepo
+npm install
+
+# 3. Copier les variables d'environnement (API)
+cp .env.example apps/api/.env
+cp .env.example packages/database/.env   # DATABASE_URL utilisé par Prisma CLI
+
+# 4. Générer le client Prisma et appliquer les migrations
+npm run db:generate
+npm run db:migrate
+
+# 5. Lancer l'API (NestJS, :3001) et le Web (Next.js, :3000)
+npm run dev
+```
+
+Vérification (cf. `AGENTS.md` §4 — Protocole d'Exécution) :
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
 
 ---
 

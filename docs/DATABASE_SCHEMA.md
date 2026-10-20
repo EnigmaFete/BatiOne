@@ -30,12 +30,17 @@ generator client {
 // -------------------------------------------------------------
 
 enum RoleUtilisateur {
-  SUPERADMIN
-  ORG_ADMIN              // Directeur Général / Gérant
+  SUPERADMIN             // Administration plateforme (hors organisation cliente)
+  ORG_ADMIN              // Propriétaire / Directeur Général
+  GESTIONNAIRE           // Manager générique (ADR-009)
   CONDUCTEUR_TRAVAUX     // Chef de projet travaux
   CHEF_CHANTIER          // Responsable terrain
   DAF_COMPTABLE          // Responsable financier
+  RH_PAIE                // Responsable RH & Paie (ADR-009)
   MAGASINIER             // Gestionnaire des stocks et dépôts
+  GESTIONNAIRE_MATERIEL  // Gestionnaire parc matériel/équipement (ADR-009)
+  EMPLOYE                // Employé/Ouvrier — accès self-service (ADR-009)
+  LECTEUR                // Lecture seule (ADR-009)
 }
 
 enum StatutOperationnel {
@@ -97,22 +102,42 @@ model Organization {
   rc                    String?                // Registre de Commerce
   if_num                String?                // Identifiant Fiscal
   patente               String?
+  cnss_employeur        String?                // Numéro d'affiliation CNSS employeur (ADR-009)
+  secteur_activite       String?                // 'CONSTRUCTION', 'EVENEMENTIEL', 'AGENCE', 'SERVICES', 'NEGOCE', 'AUTRE' (ADR-009)
   adresse               String?
   ville                 String                 @default("Casablanca")
   telephone             String?
   email                 String?
   devise                String                 @default("MAD")
+  langue_defaut         String                 @default("fr")        // 'fr', 'ar', 'en' (ADR-009)
   logo_url              String?
+  rib                   String?                // RIB bancaire principal (ADR-009)
+  banque                String?
+  numerotation_devis    String                 @default("DEV-{YYYY}-{SEQ:4}")   // gabarit de numérotation (ADR-009)
+  numerotation_facture  String                 @default("FAC-{YYYY}-{SEQ:4}")
+  payroll_config_validated_at DateTime?        // Non nul seulement après validation explicite par le comptable de l'organisation (cf. PRODUCT_SPEC.md §7)
+  onboarding_complete   Boolean                @default(false)
   created_at            DateTime               @default(now())
   updated_at            DateTime               @updatedAt
 
   users                 User[]
   chantiers             Chantier[]
   tiers                 Tiers[]
+  clients               Client[]
   articles              Article[]
   magasins              Magasin[]
   ouvriers              Ouvrier[]
+  workers               Worker[]
   engins                Engin[]
+  equipments            Equipment[]
+  quotations            Quotation[]
+  invoices              Invoice[]
+  payrollRules          PayrollRule[]
+  payrollPeriods        PayrollPeriod[]
+  expenseCategories     ExpenseCategory[]
+  documentTemplates     DocumentTemplate[]
+  notifications         Notification[]
+  settings              Setting[]
   ecrituresConsolidees  EcritureConsolidee[]
   pistesAudit           PisteAudit[]
 }
@@ -127,6 +152,8 @@ model User {
   role                  RoleUtilisateur        @default(CHEF_CHANTIER)
   telephone             String?
   cin                   String?                // Carte d'Identité Nationale
+  langue_preferee       String                 @default("fr")        // 'fr', 'ar', 'en' (ADR-009)
+  worker_id             String?                @unique                // Lien optionnel vers sa fiche Worker si role = EMPLOYE (ADR-009)
   actif                 Boolean                @default(true)
   created_at            DateTime               @default(now())
   updated_at            DateTime               @updatedAt
@@ -676,5 +703,543 @@ model PisteAudit {
   user                  User?                  @relation(fields: [user_id], references: [id])
 
   @@index([organization_id, entite_nom, entite_id])
+}
+
+// ===============================================================
+// EXTENSION DE PÉRIMÈTRE (ADR-009, 2026-10-20)
+// Modules génériques multi-métiers : Clients/Devis/Factures,
+// Paie Marocaine, Matériel/Équipement, RH, Documents, Notifications.
+// Statut : spécification de schéma, non appliquée/migrée (même
+// réserve que §1 pour le schéma BTP d'origine).
+// ===============================================================
+
+enum TypeClient {
+  PARTICULIER
+  SOCIETE
+  ENTITE_PUBLIQUE
+}
+
+enum StatutDevisFacture {
+  BROUILLON
+  ENVOYE
+  ACCEPTE          // Devis uniquement
+  REFUSE           // Devis uniquement
+  EXPIRE           // Devis uniquement
+  CONVERTI         // Devis uniquement — transformé en facture/projet
+  PARTIELLEMENT_PAYEE // Facture uniquement
+  PAYEE            // Facture uniquement
+  ANNULE
+}
+
+enum TypeContratTravailleur {
+  CDI
+  CDD
+  ANAPEC
+  STAGE
+  JOURNALIER
+  SOUS_TRAITANT
+}
+
+enum StatutTravailleur {
+  ACTIF
+  SUSPENDU
+  TERMINE
+  LISTE_NOIRE
+}
+
+enum TypePrime {
+  PERFORMANCE
+  FIN_PROJET
+  HEURES_SUPPLEMENTAIRES
+  COMMISSION
+  CONGES
+  EXCEPTIONNELLE
+  AUTRE
+}
+
+enum ProprieteMateriel {
+  INTERNE
+  LOUE
+  SOUS_TRAITANT
+}
+
+enum StatutMateriel {
+  DISPONIBLE
+  AFFECTE
+  MAINTENANCE
+  HORS_SERVICE
+  PERDU
+  VENDU
+}
+
+enum TypeDocument {
+  DEVIS
+  FACTURE
+  BON_COMMANDE
+  BON_LIVRAISON
+  CONTRAT
+  ATTESTATION_TRAVAIL
+  ORDRE_MISSION
+  PROCES_VERBAL
+  RECU_PAIEMENT
+  FICHE_CHANTIER
+  RAPPORT_JOURNALIER
+  BON_SORTIE_MATERIEL
+  FICHE_PAIE
+  ATTESTATION_CNSS
+  AUTRE
+}
+
+// ---------------------------------------------------------------
+// MODULE 10 : CLIENTS, DEVIS & FACTURES GÉNÉRIQUES
+// ---------------------------------------------------------------
+
+model Client {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  type_client           TypeClient             @default(SOCIETE)
+  nom                   String
+  contact_principal     String?
+  telephone             String?
+  whatsapp              String?
+  email                 String?
+  adresse               String?
+  ville                 String?
+  region                String?
+  ice                   String?
+  if_num                String?
+  rc                    String?
+  cnss_num              String?
+  conditions_paiement_jours Int                @default(30)
+  encours_autorise_mad  Decimal                @default(0.00) @db.Decimal(14, 2)
+  tags                  String[]               @default([])
+  notes                 String?                @db.Text
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+  deleted_at            DateTime?
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  quotations            Quotation[]
+  invoices              Invoice[]
+  projects              Chantier[]             @relation("ClientGenerique")
+
+  @@index([organization_id, deleted_at])
+}
+
+model Quotation {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  client_id             String
+  chantier_id           String?
+  numero                String                 // généré depuis Organization.numerotation_devis
+  objet                 String?
+  date_emission         DateTime               @db.Date
+  date_validite         DateTime?              @db.Date
+  pourcentage_acompte   Decimal                @default(0.00) @db.Decimal(5, 2)
+  total_ht              Decimal                @default(0.00) @db.Decimal(14, 2)
+  total_tva             Decimal                @default(0.00) @db.Decimal(14, 2)
+  total_ttc             Decimal                @default(0.00) @db.Decimal(14, 2)
+  statut                StatutDevisFacture     @default(BROUILLON)
+  converti_vers_facture_id String?             @unique
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  client                Client                 @relation(fields: [client_id], references: [id])
+  chantier              Chantier?              @relation(fields: [chantier_id], references: [id])
+  lignes                QuotationLigne[]
+  factureConvertie      Invoice?               @relation("DevisVersFacture", fields: [converti_vers_facture_id], references: [id])
+
+  @@unique([organization_id, numero])
+  @@index([organization_id, statut])
+}
+
+model QuotationLigne {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  quotation_id          String
+  designation           String
+  unite                 String                 @default("u")
+  quantite              Decimal                @db.Decimal(12, 3)
+  prix_unitaire_ht       Decimal               @db.Decimal(14, 2)
+  remise_pourcent       Decimal                @default(0.00) @db.Decimal(5, 2)
+  taux_tva              Decimal                @default(20.00) @db.Decimal(5, 2)
+  total_ligne_ht        Decimal                @db.Decimal(14, 2)
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  quotation             Quotation              @relation(fields: [quotation_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, quotation_id])
+}
+
+model Invoice {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  client_id             String
+  chantier_id           String?
+  quotation_id          String?                @unique
+  numero                String                 // généré depuis Organization.numerotation_facture
+  date_emission         DateTime               @db.Date
+  date_echeance         DateTime               @db.Date
+  retenue_source_pourcent Decimal              @default(0.00) @db.Decimal(5, 2) // Retenue à la source si applicable
+  total_ht              Decimal                @default(0.00) @db.Decimal(14, 2)
+  total_tva             Decimal                @default(0.00) @db.Decimal(14, 2)
+  total_ttc             Decimal                @default(0.00) @db.Decimal(14, 2)
+  total_paye            Decimal                @default(0.00) @db.Decimal(14, 2)
+  statut                StatutDevisFacture     @default(BROUILLON)
+  extourne_de_id        String?
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  client                Client                 @relation(fields: [client_id], references: [id])
+  chantier              Chantier?              @relation(fields: [chantier_id], references: [id])
+  devisOrigine          Quotation?             @relation("DevisVersFacture")
+  lignes                InvoiceLigne[]
+  paiements             Payment[]
+
+  @@unique([organization_id, numero])
+  @@index([organization_id, statut])
+}
+
+model InvoiceLigne {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  invoice_id            String
+  designation           String
+  unite                 String                 @default("u")
+  quantite              Decimal                @db.Decimal(12, 3)
+  prix_unitaire_ht       Decimal               @db.Decimal(14, 2)
+  remise_pourcent       Decimal                @default(0.00) @db.Decimal(5, 2)
+  taux_tva              Decimal                @default(20.00) @db.Decimal(5, 2)
+  total_ligne_ht        Decimal                @db.Decimal(14, 2)
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  invoice               Invoice                @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, invoice_id])
+}
+
+model Payment {
+  // Encaissement client — distinct de Depense (sortie d'argent). Portée idempotence : cf. ARCHITECTURE.md §6.
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  invoice_id            String?
+  client_id             String?
+  chantier_id           String?
+  montant_mad           Decimal                @db.Decimal(14, 2)
+  mode_paiement         String                 // 'ESPECES', 'CHEQUE', 'VIREMENT', 'CARTE', 'MOBILE', 'AUTRE'
+  date_paiement         DateTime               @db.Date
+  reference             String?
+  justificatif_url      String?
+  statut                StatutOperationnel     @default(BROUILLON)
+  extourne_de_id        String?
+  idempotency_key       String?
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  invoice               Invoice?               @relation(fields: [invoice_id], references: [id])
+
+  @@unique([organization_id, idempotency_key])
+  @@index([organization_id, invoice_id])
+}
+
+model ExpenseCategory {
+  // Catégories de dépense personnalisables par société — remplace l'usage exclusif de l'enum
+  // CategorieDepense (conservé pour la classification analytique BTP de haut niveau).
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  code                  String                 // 'MATERIAUX', 'CARBURANT', 'LOYER', ... ou code personnalisé
+  libelle               String
+  est_defaut            Boolean                @default(false)
+  actif                 Boolean                @default(true)
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, code])
+}
+
+model Bonus {
+  // Prime — distincte de Depense pour isoler les primes dans les rapports RH (cf. Module 11).
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  worker_id             String
+  chantier_id           String?
+  type_prime            TypePrime
+  montant_mad           Decimal                @db.Decimal(10, 2)
+  date_prime            DateTime               @db.Date
+  motif                 String?
+  statut                StatutOperationnel     @default(BROUILLON)
+  extourne_de_id        String?
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  worker                Worker                 @relation(fields: [worker_id], references: [id])
+
+  @@index([organization_id, worker_id])
+}
+
+// ---------------------------------------------------------------
+// MODULE 11 : RH & PAIE MAROCAINE
+// ---------------------------------------------------------------
+
+model Worker {
+  // Généralise Ouvrier (conservé pour la main-d'œuvre chantier BTP) à tout collaborateur de
+  // l'entreprise nécessitant un bulletin de paie et un dossier RH complet.
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  nom                   String
+  prenom                String
+  cin                   String?
+  date_naissance        DateTime?              @db.Date
+  genre                 String?
+  telephone             String?
+  whatsapp              String?
+  email                 String?
+  adresse               String?
+  photo_url             String?
+  cnss_num              String?
+  rib                   String?
+  banque                String?
+  type_contrat          TypeContratTravailleur @default(JOURNALIER)
+  poste                 String?
+  departement            String?
+  date_embauche         DateTime?              @db.Date
+  date_fin_contrat      DateTime?              @db.Date
+  salaire_base_mad      Decimal                @default(0.00) @db.Decimal(14, 2)
+  taux_journalier_mad   Decimal                @default(0.00) @db.Decimal(10, 2)
+  taux_horaire_mad      Decimal                @default(0.00) @db.Decimal(10, 2)
+  nombre_dependants     Int                    @default(0)
+  contact_urgence_nom   String?
+  contact_urgence_tel   String?
+  statut                StatutTravailleur      @default(ACTIF)
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+  deleted_at            DateTime?
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  bonus                 Bonus[]
+  payslips              Payslip[]
+  equipmentAssignments  EquipmentAssignment[]
+
+  @@index([organization_id, statut])
+}
+
+model PayrollRule {
+  // Taux paramétrables, versionnés par date d'effet — jamais codés en dur (ADR-009, PRODUCT_SPEC.md §7).
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  code                  String                 // 'CNSS_SALARIE', 'AMO_SALARIE', 'CNSS_EMPLOYEUR', 'TFP', 'PLAFOND_CNSS', 'BAREME_IR', ...
+  libelle               String
+  valeur                Json                   // Taux simple (number) ou structure (ex. tranches du barème IR)
+  date_effet            DateTime               @db.Date
+  date_fin_effet        DateTime?              @db.Date
+  created_by            String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, code, date_effet])
+  @@index([organization_id, code])
+}
+
+model PayrollPeriod {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  periode_debut         DateTime               @db.Date
+  periode_fin           DateTime               @db.Date
+  statut                StatutOperationnel     @default(BROUILLON)
+  valide_par_id         String?
+  date_validation       DateTime?
+  created_by            String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  payslips              Payslip[]
+
+  @@unique([organization_id, periode_debut, periode_fin])
+}
+
+model Payslip {
+  // Cycle BROUILLON → SOUMIS → APPROUVE → ENREGISTRE identique au reste de la plateforme (ADR-009).
+  // Un ENREGISTRE n'est autorisé que si Organization.payroll_config_validated_at est non nul.
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  payroll_period_id     String
+  worker_id             String
+  salaire_base_mad      Decimal                @db.Decimal(14, 2)
+  jours_travailles      Decimal                @default(0.00) @db.Decimal(5, 2)
+  heures_sup_mad        Decimal                @default(0.00) @db.Decimal(14, 2)
+  primes_mad            Decimal                @default(0.00) @db.Decimal(14, 2)
+  indemnites_mad        Decimal                @default(0.00) @db.Decimal(14, 2)
+  salaire_brut_mad      Decimal                @default(0.00) @db.Decimal(14, 2)
+  cnss_salarie_mad      Decimal                @default(0.00) @db.Decimal(14, 2)
+  amo_salarie_mad       Decimal                @default(0.00) @db.Decimal(14, 2)
+  ir_mad                Decimal                @default(0.00) @db.Decimal(14, 2)
+  avances_deduites_mad  Decimal                @default(0.00) @db.Decimal(14, 2)
+  salaire_net_mad       Decimal                @default(0.00) @db.Decimal(14, 2)
+  charges_patronales_mad Decimal               @default(0.00) @db.Decimal(14, 2)
+  cout_total_employeur_mad Decimal             @default(0.00) @db.Decimal(14, 2)
+  statut                StatutOperationnel     @default(BROUILLON)
+  extourne_de_id        String?
+  pdf_url               String?
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  payrollPeriod         PayrollPeriod          @relation(fields: [payroll_period_id], references: [id], onDelete: Cascade)
+  worker                Worker                 @relation(fields: [worker_id], references: [id])
+
+  @@unique([payroll_period_id, worker_id])
+  @@index([organization_id, statut])
+}
+
+// ---------------------------------------------------------------
+// MODULE 12 : MATÉRIEL & ÉQUIPEMENT GÉNÉRIQUE
+// ---------------------------------------------------------------
+
+model Equipment {
+  // Généralise Engin (conservé pour les engins de chantier BTP) à tout matériel/équipement
+  // (événementiel, agence, négoce).
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  nom                   String
+  code_interne          String
+  categorie             String?
+  marque_modele         String?
+  numero_serie          String?
+  date_achat            DateTime?              @db.Date
+  prix_achat_mad        Decimal                @default(0.00) @db.Decimal(14, 2)
+  valeur_actuelle_mad   Decimal                @default(0.00) @db.Decimal(14, 2)
+  propriete             ProprieteMateriel      @default(INTERNE)
+  etat                  String?                // 'NEUF', 'BON', 'USAGE', 'A_REPARER'
+  statut                StatutMateriel         @default(DISPONIBLE)
+  photo_url             String?
+  prochaine_maintenance DateTime?              @db.Date
+  derniere_maintenance  DateTime?              @db.Date
+  notes                 String?                @db.Text
+  created_by            String?
+  updated_by            String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+  deleted_at            DateTime?
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  assignments           EquipmentAssignment[]
+
+  @@unique([organization_id, code_interne])
+  @@index([organization_id, statut])
+}
+
+model EquipmentAssignment {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  equipment_id          String
+  chantier_id           String?
+  worker_responsable_id String?
+  destination           String?
+  date_affectation      DateTime               @db.Date
+  date_retour_prevue    DateTime?              @db.Date
+  date_retour_reelle    DateTime?              @db.Date
+  cout_location_mad     Decimal                @default(0.00) @db.Decimal(14, 2)
+  statut                StatutOperationnel     @default(BROUILLON)
+  notes                 String?
+  created_by            String?
+  created_at            DateTime               @default(now())
+
+  equipment             Equipment              @relation(fields: [equipment_id], references: [id])
+  chantier              Chantier?              @relation(fields: [chantier_id], references: [id])
+  workerResponsable     Worker?                @relation(fields: [worker_responsable_id], references: [id])
+
+  @@index([organization_id, equipment_id])
+}
+
+// ---------------------------------------------------------------
+// MODULE 13 : MOTEUR DE DOCUMENTS & NOTIFICATIONS
+// ---------------------------------------------------------------
+
+model DocumentTemplate {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  type_document         TypeDocument
+  nom                   String
+  langue                String                 @default("fr")        // 'fr', 'ar', 'en'
+  contenu_html          String                 @db.Text
+  variables_disponibles Json?
+  est_defaut            Boolean                @default(false)
+  version               Int                    @default(1)
+  created_by            String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  generatedDocuments    GeneratedDocument[]
+
+  @@index([organization_id, type_document])
+}
+
+model GeneratedDocument {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  document_template_id  String?
+  type_document         TypeDocument
+  chantier_id           String?
+  entite_liee_type       String?               // 'Quotation', 'Invoice', 'Payslip', ...
+  entite_liee_id        String?
+  pdf_url               String
+  partage_lien_public   String?                @unique
+  partage_expiration    DateTime?
+  partage_mot_de_passe_hash String?
+  created_by            String?
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  template              DocumentTemplate?      @relation(fields: [document_template_id], references: [id])
+
+  @@index([organization_id, type_document])
+  @@index([organization_id, entite_liee_type, entite_liee_id])
+}
+
+model Notification {
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  user_id               String
+  type                  String                 // 'TACHE_ASSIGNEE', 'DEPENSE_A_APPROUVER', 'PAIEMENT_RECU', 'FACTURE_ECHUE', 'STOCK_FAIBLE', 'RETOUR_MATERIEL_DU', 'PAIE_A_APPROUVER', 'ECHEANCE_DECLARATION', ...
+  titre                 String
+  message               String?
+  lien                  String?
+  lu                    Boolean                @default(false)
+  created_at            DateTime               @default(now())
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, user_id, lu])
+}
+
+model Setting {
+  // Paramètres société clé/valeur (ex. seuils d'approbation, workflow activé par module).
+  id                    String                 @id @default(uuid())
+  organization_id       String
+  cle                   String
+  valeur                Json
+  updated_by            String?
+  updated_at            DateTime               @updatedAt
+
+  organization          Organization           @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, cle])
 }
 ```
