@@ -90,9 +90,11 @@ model Organization {
   created_at                  DateTime  @default(now())
   updated_at                  DateTime  @updatedAt
 
-  users    User[]
-  projects Project[]
-  clients  Client[]
+  users             User[]
+  projects          Project[]
+  clients           Client[]
+  expenseCategories ExpenseCategory[]
+  expenses          Expense[]
 
   @@map("organizations")
 }
@@ -173,6 +175,7 @@ model Project {
   organization    Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   responsable     User?         @relation("ResponsableProjet", fields: [responsable_id], references: [id])
   client          Client?       @relation(fields: [client_id], references: [id])
+  expenses        Expense[]
 
   @@unique([organization_id, code])
   @@index([organization_id, statut])
@@ -228,4 +231,90 @@ model Client {
 
   @@index([organization_id, deleted_at])
   @@map("clients")
+}
+
+// -------------------------------------------------------------
+// MODULE 4 : FINANCE — DÉPENSES (Phase 04, socle)
+// -------------------------------------------------------------
+
+/// Cycle de vie des enregistrements financiers sensibles (AGENTS.md §2.3, ADR-003) : à sens
+/// unique sauf le rejet SOUMIS -> BROUILLON. Un enregistrement ENREGISTRE est immuable ; seule une
+/// extourne (nouvelle ligne symétrique inverse) peut en annuler l'effet.
+enum StatutOperationnel {
+  BROUILLON
+  SOUMIS
+  APPROUVE
+  ENREGISTRE
+  EXTOURNE
+}
+
+enum ModePaiement {
+  ESPECES
+  CHEQUE
+  VIREMENT
+  CARTE
+  MOBILE
+  AUTRE
+}
+
+/// Catégories de dépenses personnalisables par organisation (PRODUCT_SPEC.md §6) — jamais un enum
+/// figé, pour que chaque entreprise puisse ajouter les siennes. Des catégories par défaut sont
+/// créées automatiquement à l'inscription (cf. OrganizationsService.inscrire).
+model ExpenseCategory {
+  id              String    @id @default(uuid())
+  organization_id String
+  nom             String
+  created_at      DateTime  @default(now())
+
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  expenses        Expense[]
+
+  @@unique([organization_id, nom])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id               String             @id @default(uuid())
+  organization_id  String
+  date_depense     DateTime           @db.Date
+  montant_ht       Decimal            @db.Decimal(14, 2)
+  categorie_id     String
+  project_id       String?
+  fournisseur      String?
+  mode_paiement    ModePaiement?
+  reference_piece  String?
+  notes            String?            @db.Text
+  statut           StatutOperationnel @default(BROUILLON)
+
+  // Séparation des tâches (ADR-003 D4) : le soumetteur ne peut pas être l'approbateur.
+  soumis_par_id    String?
+  soumis_le        DateTime?
+  approuve_par_id  String?
+  approuve_le      DateTime?
+  enregistre_le    DateTime?
+  motif_rejet      String?
+
+  // Extourne (ADR-003 D5/D6) : l'original reste ENREGISTRE pour toujours ; cette colonne, posée
+  // sur la ligne d'extourne elle-même, pointe vers l'original qu'elle annule.
+  extourne_de_id   String?            @unique
+  motif_extourne   String?
+
+  // Idempotence (ARCHITECTURE.md §6) — portée par tenant, jamais globale.
+  idempotency_key  String?
+
+  created_by       String?
+  updated_by       String?
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+
+  organization     Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  categorie        ExpenseCategory    @relation(fields: [categorie_id], references: [id])
+  project          Project?           @relation(fields: [project_id], references: [id])
+  extourneDe       Expense?           @relation("ExtourneExpense", fields: [extourne_de_id], references: [id])
+  extourne         Expense?           @relation("ExtourneExpense")
+
+  @@unique([organization_id, idempotency_key])
+  @@index([organization_id, statut])
+  @@index([organization_id, project_id])
+  @@map("expenses")
 }

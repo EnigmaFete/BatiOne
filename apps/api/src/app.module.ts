@@ -11,6 +11,8 @@ import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { ClientsModule } from './modules/clients/clients.module';
+import { ExpenseCategoriesModule } from './modules/expense-categories/expense-categories.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { ClientsModule } from './modules/clients/clients.module';
     UsersModule,
     ClientsModule,
     ProjectsModule,
+    ExpenseCategoriesModule,
+    ExpensesModule,
     HealthModule,
   ],
   providers: [

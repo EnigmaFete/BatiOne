@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@batione/database';
 import { TenantPrismaService } from '../../common/prisma/tenant-prisma.service';
+import { toDateOrUndefined } from '../../common/utils/date.util';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsQueryDto } from './dto/list-projects-query.dto';
@@ -76,8 +77,8 @@ export class ProjectsService {
             client_id: dto.clientId,
             responsable_id: dto.responsableId,
             budget: dto.budget ?? 0,
-            date_debut: dto.dateDebut,
-            date_fin_prevue: dto.dateFinPrevue,
+            date_debut: toDateOrUndefined(dto.dateDebut),
+            date_fin_prevue: toDateOrUndefined(dto.dateFinPrevue),
             description: dto.description,
             created_by: userId,
             updated_by: userId,
@@ -107,9 +108,9 @@ export class ProjectsService {
         client_id: dto.clientId,
         responsable_id: dto.responsableId,
         budget: dto.budget,
-        date_debut: dto.dateDebut,
-        date_fin_prevue: dto.dateFinPrevue,
-        date_fin_reelle: dto.dateFinReelle,
+        date_debut: toDateOrUndefined(dto.dateDebut),
+        date_fin_prevue: toDateOrUndefined(dto.dateFinPrevue),
+        date_fin_reelle: toDateOrUndefined(dto.dateFinReelle),
         description: dto.description,
         updated_by: userId,
       },
