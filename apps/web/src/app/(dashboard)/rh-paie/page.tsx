@@ -177,10 +177,12 @@ function ContenuRhPaie() {
       const params = new URLSearchParams();
       if (rechercheWorker) params.set('recherche', rechercheWorker);
       if (filtreContrat) params.set('type_contrat', filtreContrat);
-      const res = await api.get<{ donnees: WorkerItem[] }>(`/workers?${params.toString()}`);
-      setWorkers(res.donnees);
+      const res = await api.get<WorkerItem[] | { donnees: WorkerItem[] }>(`/workers?${params.toString()}`);
+      const liste = Array.isArray(res) ? res : Array.isArray((res as { donnees?: WorkerItem[] })?.donnees) ? (res as { donnees: WorkerItem[] }).donnees : [];
+      setWorkers(liste);
     } catch (e) {
       console.error(e);
+      setWorkers([]);
     }
   }, [rechercheWorker, filtreContrat]);
 
@@ -190,9 +192,10 @@ function ContenuRhPaie() {
       const params = new URLSearchParams();
       params.set('date', datePointage);
       if (projetPointageId) params.set('project_id', projetPointageId);
-      const res = await api.get<{ donnees: PointageJournee }>(`/pointages/date?${params.toString()}`);
-      setPointageJour(res.donnees);
-      setNotesPointage(res.donnees.notes || '');
+      const res = await api.get<PointageJournee | { donnees: PointageJournee }>(`/pointages/date?${params.toString()}`);
+      const donnees = (res as PointageJournee)?.lignes ? (res as PointageJournee) : (res as { donnees?: PointageJournee })?.donnees?.lignes ? (res as { donnees: PointageJournee }).donnees : null;
+      setPointageJour(donnees);
+      if (donnees?.notes) setNotesPointage(donnees.notes);
     } catch (e) {
       console.error(e);
     }
@@ -203,32 +206,36 @@ function ContenuRhPaie() {
     try {
       const params = new URLSearchParams();
       if (filtreAcompteNonDeduit) params.set('non_deduits', 'true');
-      const res = await api.get<{ donnees: AcompteItem[] }>(`/acomptes?${params.toString()}`);
-      setAcomptes(res.donnees);
+      const res = await api.get<AcompteItem[] | { donnees: AcompteItem[] }>(`/acomptes?${params.toString()}`);
+      const liste = Array.isArray(res) ? res : Array.isArray((res as { donnees?: AcompteItem[] })?.donnees) ? (res as { donnees: AcompteItem[] }).donnees : [];
+      setAcomptes(liste);
     } catch (e) {
       console.error(e);
+      setAcomptes([]);
     }
   }, [filtreAcompteNonDeduit]);
 
   // 4. Charger la paie
   const chargerPaie = useCallback(async () => {
     try {
-      const res = await api.get<{ donnees: PaieRecapitulatif }>(
+      const res = await api.get<PaieRecapitulatif | { donnees: PaieRecapitulatif }>(
         `/paie/bulletins?annee=${anneePaie}&mois=${moisPaie}`
       );
-      setPaieRecap(res.donnees);
+      const donnees = (res as PaieRecapitulatif)?.totaux ? (res as PaieRecapitulatif) : (res as { donnees?: PaieRecapitulatif })?.donnees?.totaux ? (res as { donnees: PaieRecapitulatif }).donnees : null;
+      setPaieRecap(donnees);
     } catch (e) {
       console.error(e);
     }
   }, [anneePaie, moisPaie]);
 
+  // Synchronisation globale dès la connexion : tous les compteurs d'onglets sont renseignés
   useEffect(() => {
     if (!moi) return;
-    if (tabActive === 'ouvriers') chargerWorkers();
-    if (tabActive === 'pointage') chargerPointageJour();
-    if (tabActive === 'acomptes') chargerAcomptes();
-    if (tabActive === 'paie') chargerPaie();
-  }, [moi, tabActive, chargerWorkers, chargerPointageJour, chargerAcomptes, chargerPaie]);
+    chargerWorkers();
+    chargerPointageJour();
+    chargerAcomptes();
+    chargerPaie();
+  }, [moi, chargerWorkers, chargerPointageJour, chargerAcomptes, chargerPaie]);
 
   // Navigation par tab
   function changerTab(t: TabType) {
@@ -378,13 +385,17 @@ function ContenuRhPaie() {
   if (!moi) return <p style={{ color: 'var(--batione-ink-500)', padding: 24 }}>Chargement…</p>;
 
   // KPIs rapides de l'équipe
-  const totalWorkers = workers.length;
-  const journaliersCount = workers.filter((w) => w.type_contrat === TypeContratWorker.JOURNALIER).length;
-  const cdiCount = workers.filter((w) => w.type_contrat === TypeContratWorker.CDI || w.type_contrat === TypeContratWorker.CDD).length;
-  const masseSalarialeEstimee = workers.reduce((acc, w) => {
-    if (w.salaire_base_mad && Number(w.salaire_base_mad) > 0) return acc + Number(w.salaire_base_mad);
-    return acc + Number(w.taux_journalier_mad) * 22; // estimation 22 jours/mois pour un journalier
+  const listeWorkers = Array.isArray(workers) ? workers : [];
+  const totalWorkers = listeWorkers.length;
+  const journaliersCount = listeWorkers.filter((w) => w?.type_contrat === TypeContratWorker.JOURNALIER).length;
+  const cdiCount = listeWorkers.filter((w) => w?.type_contrat === TypeContratWorker.CDI || w?.type_contrat === TypeContratWorker.CDD).length;
+  const masseSalarialeEstimee = listeWorkers.reduce((acc, w) => {
+    if (w?.salaire_base_mad && Number(w.salaire_base_mad) > 0) return acc + Number(w.salaire_base_mad);
+    return acc + (Number(w?.taux_journalier_mad) || 0) * 22; // estimation 22 jours/mois pour un journalier
   }, 0);
+
+  const totalAcomptes = Array.isArray(acomptes) ? acomptes.length : 0;
+  const totalBulletins = paieRecap?.total_bulletins ?? (Array.isArray(paieRecap?.bulletins) ? paieRecap.bulletins.length : 0);
 
   return (
     <div>
@@ -491,13 +502,16 @@ function ContenuRhPaie() {
         </div>
       </div>
 
-      {/* Barre d'onglets principale */}
+      {/* Barre d'onglets principale avec badges */}
       <div
         style={{
           display: 'flex',
           gap: 'var(--batione-space-2)',
           borderBottom: '2px solid var(--batione-ink-100)',
           marginBottom: 'var(--batione-space-5)',
+          overflowX: 'auto',
+          whiteSpace: 'nowrap',
+          scrollbarWidth: 'none',
         }}
       >
         <button
@@ -515,10 +529,25 @@ function ContenuRhPaie() {
             fontWeight: tabActive === 'ouvriers' ? 700 : 500,
             fontSize: 'var(--batione-font-size-sm)',
             cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            transition: 'all 0.15s ease',
           }}
         >
           <Users size={18} />
-          Collaborateurs ({totalWorkers})
+          <span>Collaborateurs</span>
+          <span
+            style={{
+              padding: '2px 8px',
+              borderRadius: 9999,
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              backgroundColor: tabActive === 'ouvriers' ? 'var(--batione-primary-soft)' : 'var(--batione-ink-100)',
+              color: tabActive === 'ouvriers' ? 'var(--batione-primary-strong)' : 'var(--batione-ink-700)',
+            }}
+          >
+            {totalWorkers}
+          </span>
         </button>
 
         <button
@@ -536,10 +565,27 @@ function ContenuRhPaie() {
             fontWeight: tabActive === 'pointage' ? 700 : 500,
             fontSize: 'var(--batione-font-size-sm)',
             cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            transition: 'all 0.15s ease',
           }}
         >
           <CalendarCheck size={18} />
-          Pointage Quotidien Chantier
+          <span>Pointage Quotidien Chantier</span>
+          {pointageJour && pointageJour.total_ouvriers > 0 && (
+            <span
+              style={{
+                padding: '2px 8px',
+                borderRadius: 9999,
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                backgroundColor: tabActive === 'pointage' ? 'var(--batione-primary-soft)' : 'var(--batione-ink-100)',
+                color: tabActive === 'pointage' ? 'var(--batione-primary-strong)' : 'var(--batione-ink-700)',
+              }}
+            >
+              {pointageJour.presents}/{pointageJour.total_ouvriers}
+            </span>
+          )}
         </button>
 
         <button
@@ -557,10 +603,25 @@ function ContenuRhPaie() {
             fontWeight: tabActive === 'acomptes' ? 700 : 500,
             fontSize: 'var(--batione-font-size-sm)',
             cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            transition: 'all 0.15s ease',
           }}
         >
           <DollarSign size={18} />
-          Acomptes sur Salaire ({acomptes.length})
+          <span>Acomptes sur Salaire</span>
+          <span
+            style={{
+              padding: '2px 8px',
+              borderRadius: 9999,
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              backgroundColor: tabActive === 'acomptes' ? 'var(--batione-primary-soft)' : 'var(--batione-ink-100)',
+              color: tabActive === 'acomptes' ? 'var(--batione-primary-strong)' : 'var(--batione-ink-700)',
+            }}
+          >
+            {totalAcomptes}
+          </span>
         </button>
 
         <button
@@ -578,10 +639,25 @@ function ContenuRhPaie() {
             fontWeight: tabActive === 'paie' ? 700 : 500,
             fontSize: 'var(--batione-font-size-sm)',
             cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            transition: 'all 0.15s ease',
           }}
         >
           <FileSpreadsheet size={18} />
-          Paie & Bulletins Marocains
+          <span>Paie & Bulletins Marocains</span>
+          <span
+            style={{
+              padding: '2px 8px',
+              borderRadius: 9999,
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              backgroundColor: tabActive === 'paie' ? 'var(--batione-primary-soft)' : 'var(--batione-ink-100)',
+              color: tabActive === 'paie' ? 'var(--batione-primary-strong)' : 'var(--batione-ink-700)',
+            }}
+          >
+            {totalBulletins}
+          </span>
         </button>
       </div>
 
@@ -959,7 +1035,11 @@ function ContenuRhPaie() {
           )}
 
           {/* Grille de pointage réactive */}
-          {pointageJour && pointageJour.lignes.length === 0 ? (
+          {!pointageJour ? (
+            <div className="bo-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <p style={{ color: 'var(--batione-ink-500)' }}>Chargement de la feuille de pointage…</p>
+            </div>
+          ) : pointageJour.lignes.length === 0 ? (
             <div className="bo-card bo-empty-state" style={{ textAlign: 'center', padding: '48px 24px' }}>
               <Users size={40} color="var(--batione-ink-300)" style={{ marginBottom: 12 }} />
               <h3>Aucun collaborateur actif disponible pour le pointage</h3>
@@ -1140,7 +1220,7 @@ function ContenuRhPaie() {
             </button>
           </div>
 
-          {acomptes.length === 0 ? (
+          {(acomptes || []).length === 0 ? (
             <div className="bo-card bo-empty-state" style={{ textAlign: 'center', padding: '48px 24px' }}>
               <DollarSign size={40} color="var(--batione-ink-300)" style={{ marginBottom: 12 }} />
               <h3>Aucun acompte enregistré</h3>
@@ -1170,7 +1250,7 @@ function ContenuRhPaie() {
                   </tr>
                 </thead>
                 <tbody>
-                  {acomptes.map((a) => (
+                  {(acomptes || []).map((a) => (
                     <tr key={a.id} style={{ borderBottom: '1px solid var(--batione-ink-100)' }}>
                       <td style={{ padding: '12px 16px', fontWeight: 600 }}>
                         {a.date_acompte.split('T')[0]}
@@ -1344,7 +1424,11 @@ function ContenuRhPaie() {
           )}
 
           {/* Tableau des bulletins */}
-          {paieRecap?.bulletins.length === 0 ? (
+          {!paieRecap ? (
+            <div className="bo-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <p style={{ color: 'var(--batione-ink-500)' }}>Chargement des bulletins de paie…</p>
+            </div>
+          ) : (paieRecap.bulletins || []).length === 0 ? (
             <div className="bo-card bo-empty-state" style={{ textAlign: 'center', padding: '48px 24px' }}>
               <FileSpreadsheet size={40} color="var(--batione-ink-300)" style={{ marginBottom: 12 }} />
               <h3>Aucun bulletin de paie généré pour ce mois</h3>
@@ -1376,7 +1460,7 @@ function ContenuRhPaie() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paieRecap?.bulletins.map((b) => (
+                  {(paieRecap.bulletins || []).map((b) => (
                     <tr key={b.id} style={{ borderBottom: '1px solid var(--batione-ink-100)' }}>
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ fontWeight: 600 }}>
