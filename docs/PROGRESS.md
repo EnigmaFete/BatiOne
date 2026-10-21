@@ -14,7 +14,7 @@
 | :--- | :---: | :---: | :---: | :---: |
 | **0. Socle & Gouvernance** | ✅ Validé | ✅ Validé | ✅ Fait | ✅ Vert (lint/typecheck/build) |
 | **1. Utilisateurs & Permissions (RBAC)** | ✅ Validé | 🔄 Organization/User/RefreshToken migrés (modèles étendus en Phases 09-13) | 🔄 Socle auth+RBAC fait (6/11 rôles exercés par les tests ; onboarding, JWT, lockout, tenant isolation) | ✅ Vert (36 tests : 26 unitaires, 6 intégration, 4 sécurité) |
-| **2. Projets, Chantiers & Tâches** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
+| **2. Projets, Chantiers & Tâches** | ✅ Validé | 🔄 `Project` générique migré (sous-domaine BTP approfondi — Chantier/BPU/Décompte — pas encore ajouté) | 🔄 CRUD de base (liste filtrée+paginée, création avec code auto-généré, détail, archivage) — Tâches/Matériaux/Équipe/Matériel/Documents/Activité encore des onglets stubs | ⚠️ Vérifié manuellement en navigateur réel uniquement — **aucun test automatisé Jest écrit pour `ProjectsService`/`ProjectsController`** (dette à combler avant la suite) |
 | **3. Clients, Marchés & Documents** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
 | **4. Finance & Décomptes Opérationnels**| ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
 | **5. Stocks & Approvisionnements** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
@@ -84,3 +84,29 @@
   - `npm test` → 36/36 tests verts (5 suites de test).
   - `npm run build` → Build de production Next.js réussi (routes pré-rendues, static assets optimisés).
 
+### 2026-10-20 : Harmonisation de la Palette de Marque avec le Logo
+- **Mise à niveau des tokens de marque** ([`tokens.css`](file:///Users/mohamedtazi/Desktop/ANTIGRAVITY%20FOLDER/BatiOne/apps/web/src/styles/tokens.css)) :
+  - Remplacement de l'orange générique (`#d97706`, `#b45309`, `#fef3c7`) par les teintes architecturales exactes extraites du logo :
+    - `--batione-primary` : `#b0895d` (Or architectural / Sand Bronze du panneau central du monogramme).
+    - `--batione-primary-strong` : `#8f6738` (Bronze profond pour survol, focus et contraste).
+    - `--batione-primary-soft` : `#f7f0e4` (Voile crémeux subtil issu du papier texturé).
+    - `--batione-primary-light` : `#c59e70` (Reflet doré architectural).
+- **Harmonisation globale des composants UI** :
+  - Boutons primaires (`.bo-btn--primary`), anneaux de focus des champs (`.bo-input:focus`), liens de navigation d'authentification (`/connexion`, `/inscription`), illustrations de chantier (`AuthBackground`, `ConstructionIllustration`), indicateurs de progression (`OnboardingChecklist`), icônes de topbar et états actifs de la sidebar.
+  - En-tête de la barre latérale ([`Sidebar.tsx`](file:///Users/mohamedtazi/Desktop/ANTIGRAVITY%20FOLDER/BatiOne/apps/web/src/components/Sidebar.tsx)) mis à jour avec le monogramme officiel et le mot-symbole bicolore.
+  - Page d'inscription ([`inscription/page.tsx`](file:///Users/mohamedtazi/Desktop/ANTIGRAVITY%20FOLDER/BatiOne/apps/web/src/app/inscription/page.tsx)) enrichie avec le logo de marque centré.
+- **Vérifications exécutées** :
+  - `npm run lint` → 0 erreur/avertissement.
+  - `npm run typecheck` → 0 erreur TypeScript.
+  - `npm test` → 36/36 tests automatisés verts.
+  - `npm run build` → Build de production Next.js validé avec succès.
+
+### 2026-10-21 : Correction Ports Dev (Phase 01) & Phase 02 — Module Projets (socle générique)
+- **Bug réel corrigé — confusion de ports en développement local** : le frontend appelait silencieusement `localhost:3001` (ancien défaut codé en dur dans `lib/api.ts`) au lieu de `4001`, et l'API n'autorisait que l'origine CORS `3000` au lieu de `4000` — les deux ne fonctionnaient qu'avec des variables d'environnement shell passées manuellement, perdues au redémarrage. **4000/4001 sont déormais les ports par défaut persistés du projet** (choisis pour ne jamais entrer en collision avec un autre projet local sur cette machine) : `apps/web/.env.local` (nouveau, gitignored) fixe `NEXT_PUBLIC_API_URL`, `apps/web/package.json` et `apps/api/src/main.ts` ont leurs valeurs de repli par défaut alignées, `.env.example`/`README.md` mis à jour en conséquence.
+- **Module Projets (Phase 02, socle générique multi-métiers)** : nouveau modèle `Project` migré (`type`/`statut` propres, distincts du cycle à 4 états des transactions financières — cf. commentaire du schéma), migration `20261021112314_add_project`. Endpoints `GET/POST /projets`, `GET/PATCH/DELETE /projets/:id` (`ProjectsModule` suivant exactement les conventions déjà établies par `OrganizationsModule`/`UsersModule` : `TenantPrismaService`, enveloppe de réponse standard, RBAC via `@Roles()`). Génération serveur du code projet (`PRJ-{année}-{séquence}`) avec retry sur collision (`P2002`).
+- **Frontend** : restructuration en groupe de routes `(dashboard)` pour partager Sidebar/TopBar entre `/tableau-de-bord` et `/projets/*` sans dupliquer le layout ; nouveau hook `useMoi()` extrait pour factoriser la logique d'authentification/redirection déjà dupliquée. Pages `/projets` (liste avec recherche + filtre statut + état vide), `/projets/nouveau` (formulaire de création), `/projets/[id]` (fiche détail — onglet Aperçu fonctionnel, 7 onglets restants explicitement marqués "bientôt disponible", jamais simulés). Le tableau de bord affiche désormais le **nombre réel** de projets (plus de valeur statique) et son bouton "Créer un projet" est actif.
+- **Vérification réellement exécutée** :
+  - `npm run typecheck` / `npm run lint` → 0 erreur sur les 4 workspaces.
+  - `npm run test:unit -w @batione/api` → 26/26 verts (inchangé — aucun nouveau test unitaire ajouté pour ce module, cf. dette notée dans le tableau §2).
+  - **Test manuel navigateur réel** (Browser pane) : connexion → tableau de bord (0 projet) → `/projets` (état vide) → création d'un projet complet (nom, type, client, budget 850 000 MAD, aucune date) → redirection vers la fiche détail avec code `PRJ-2026-001` généré, statut `Brouillon`, budget formaté `850 000,00 MAD` → retour liste (ligne affichée avec toutes les colonnes) → tableau de bord (compteur passé à 1, état vide disparu). Requêtes réseau vérifiées une à une (`POST /projets → 201`, `GET /projets/:id → 200`, `GET /projets → 200`) — aucune erreur.
+- **Non couvert à ce stade** : tests automatisés (unitaires/intégration/sécurité) pour le module Projets ; relation `client_nom` en texte libre plutôt qu'une vraie FK vers un futur modèle `Client` (Phase 03) ; onglets Financier/Tâches/Matériaux/Équipe/Matériel/Documents/Activité ; RLS PostgreSQL (toujours en attente depuis Phase 01).

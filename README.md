@@ -24,7 +24,7 @@ cp .env.example packages/database/.env   # DATABASE_URL utilisé par Prisma CLI
 npm run db:generate
 npm run db:migrate
 
-# 5. Lancer l'API (NestJS, :3001) et le Web (Next.js, :3000)
+# 5. Lancer l'API (NestJS, :4001) et le Web (Next.js, :4000)
 npm run dev
 ```
 

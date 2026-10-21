@@ -39,6 +39,28 @@ enum RoleUtilisateur {
   LECTEUR // Lecture seule
 }
 
+/// Type de projet (PRODUCT_SPEC.md — plateforme multi-métiers, pas seulement BTP).
+enum TypeProjet {
+  CONSTRUCTION
+  RENOVATION
+  EVENEMENTIEL
+  SERVICES
+  FOURNITURE
+  MAINTENANCE
+  AUTRE
+}
+
+/// Statut de cycle de vie du projet — distinct du cycle à 4 états des transactions financières
+/// sensibles (BROUILLON/SOUMIS/APPROUVE/ENREGISTRE) : un projet est une fiche de suivi, pas un
+/// enregistrement financier scellé.
+enum StatutProjet {
+  BROUILLON
+  ACTIF
+  EN_PAUSE
+  TERMINE
+  ANNULE
+}
+
 // -------------------------------------------------------------
 // MODULE 1 : ORGANISATION & UTILISATEURS (MULTI-TENANCY)
 // -------------------------------------------------------------
@@ -68,7 +90,8 @@ model Organization {
   created_at                  DateTime  @default(now())
   updated_at                  DateTime  @updatedAt
 
-  users User[]
+  users    User[]
+  projects Project[]
 
   @@map("organizations")
 }
@@ -96,6 +119,7 @@ model User {
 
   organization     Organization    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   refreshTokens    RefreshToken[]
+  projetsResponsable Project[]     @relation("ResponsableProjet")
 
   @@index([organization_id, role])
   @@map("users")
@@ -116,4 +140,40 @@ model RefreshToken {
 
   @@index([user_id])
   @@map("refresh_tokens")
+}
+
+// -------------------------------------------------------------
+// MODULE 2 : PROJETS (socle générique multi-métiers — Phase 02)
+// -------------------------------------------------------------
+
+/// Fiche projet générique (tous secteurs). Le sous-domaine BTP approfondi (BPU, décomptes,
+/// retenue de garantie — cf. docs/DATABASE_SCHEMA.md) sera ajouté séparément en Phase 03+ et
+/// s'y rattachera via `project_id` quand `type = CONSTRUCTION`, sans dupliquer ce modèle.
+model Project {
+  id              String        @id @default(uuid())
+  organization_id String
+  code            String // 'PRJ-2026-001' — généré serveur, unique par organisation
+  nom             String
+  type            TypeProjet    @default(AUTRE)
+  statut          StatutProjet  @default(BROUILLON)
+  client_nom      String? // Texte libre en attendant le module Clients (Phase 03) — deviendra une relation FK
+  responsable_id  String?
+  budget          Decimal       @default(0.00) @db.Decimal(14, 2)
+  date_debut      DateTime?     @db.Date
+  date_fin_prevue DateTime?     @db.Date
+  date_fin_reelle DateTime?     @db.Date
+  description     String?       @db.Text
+  created_by      String?
+  updated_by      String?
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+  deleted_at      DateTime?
+
+  organization    Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  responsable     User?         @relation("ResponsableProjet", fields: [responsable_id], references: [id])
+
+  @@unique([organization_id, code])
+  @@index([organization_id, statut])
+  @@index([organization_id, deleted_at])
+  @@map("projects")
 }

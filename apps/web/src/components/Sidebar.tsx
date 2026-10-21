@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -53,23 +54,32 @@ export function Sidebar() {
           padding: 'var(--batione-space-5) var(--batione-space-5) var(--batione-space-6)',
         }}
       >
-        <span
+        <div
           style={{
             width: 36,
             height: 36,
             borderRadius: 10,
-            background: 'linear-gradient(135deg, var(--batione-primary), var(--batione-primary-strong))',
+            background: 'var(--batione-surface)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontWeight: 800,
-            fontSize: 18,
             flexShrink: 0,
+            padding: 4,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
           }}
         >
-          B
-        </span>
-        <strong style={{ fontSize: 'var(--batione-font-size-lg)' }}>BatiOne</strong>
+          <Image
+            src="/brand/logo.png"
+            alt="BatiOne Logo"
+            width={28}
+            height={28}
+            style={{ objectFit: 'contain', width: '100%', height: '100%' }}
+          />
+        </div>
+        <strong style={{ fontSize: 'var(--batione-font-size-lg)', letterSpacing: '-0.02em' }}>
+          <span>Bati</span>
+          <span style={{ color: 'var(--batione-primary)' }}>One</span>
+        </strong>
       </div>
 
       <ul style={{ listStyle: 'none', margin: 0, padding: '0 var(--batione-space-3)', flex: 1 }}>
