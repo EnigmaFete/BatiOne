@@ -13,8 +13,13 @@ async function bootstrap(): Promise<void> {
   app.use(helmet());
   app.use(cookieParser());
   app.setGlobalPrefix('api/v1');
+  // CORS_ORIGIN accepte une liste séparée par des virgules (ex. localhost pour le poste de dev
+  // + l'IP locale du réseau pour tester depuis un téléphone sur le même Wi-Fi).
+  const originsAutorisees = (process.env.CORS_ORIGIN ?? 'http://localhost:4000')
+    .split(',')
+    .map((o) => o.trim());
   app.enableCors({
-    origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+    origin: originsAutorisees,
     credentials: true,
   });
   app.useGlobalPipes(
@@ -27,7 +32,7 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
 
-  const port = process.env.API_PORT ?? 3001;
+  const port = process.env.API_PORT ?? 4001;
   await app.listen(port);
   // eslint-disable-next-line no-console
   console.log(`BatiOne API démarrée sur http://localhost:${port}/api/v1`);

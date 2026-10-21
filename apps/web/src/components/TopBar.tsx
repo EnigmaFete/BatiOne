@@ -1,12 +1,44 @@
 'use client';
 
-import { Building2, Search, Bell, ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Building2, Search, Bell, ChevronDown, LogOut, User } from 'lucide-react';
+import { api, definirJetonAcces } from '@/lib/api';
+import { useAuth } from '@/lib/AuthContext';
 
-interface TopBarProps {
-  nomOrganisation?: string;
-}
+export function TopBar() {
+  const router = useRouter();
+  const { moi } = useAuth();
+  const [menuOuvert, setMenuOuvert] = useState(false);
+  const [deconnexionEnCours, setDeconnexionEnCours] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-export function TopBar({ nomOrganisation }: TopBarProps) {
+  useEffect(() => {
+    function fermerSiExterieur(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOuvert(false);
+      }
+    }
+    document.addEventListener('mousedown', fermerSiExterieur);
+    return () => document.removeEventListener('mousedown', fermerSiExterieur);
+  }, []);
+
+  async function seDeconnecter() {
+    setDeconnexionEnCours(true);
+    try {
+      await api.post('/auth/deconnexion');
+    } catch {
+      // Même si l'appel échoue (session déjà expirée côté serveur, réseau coupé…), on efface le
+      // jeton local et on redirige — l'utilisateur ne doit jamais rester bloqué sur un bouton
+      // "Déconnexion" qui ne fait rien.
+    } finally {
+      definirJetonAcces(null);
+      router.replace('/connexion');
+    }
+  }
+
+  const initiale = moi ? moi.prenom.charAt(0).toUpperCase() : 'U';
+
   return (
     <header
       style={{
@@ -35,7 +67,7 @@ export function TopBar({ nomOrganisation }: TopBarProps) {
         }}
       >
         <Building2 size={18} color="var(--batione-primary)" aria-hidden />
-        {nomOrganisation ?? 'Mon entreprise'}
+        {moi?.organization.nom ?? 'Mon entreprise'}
         <ChevronDown size={16} color="var(--batione-ink-500)" aria-hidden />
       </button>
 
@@ -88,27 +120,101 @@ export function TopBar({ nomOrganisation }: TopBarProps) {
           <ChevronDown size={14} color="var(--batione-ink-500)" aria-hidden />
         </button>
 
-        <button
-          type="button"
-          style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', cursor: 'pointer' }}
-        >
-          <span
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              background: 'var(--batione-primary-soft)',
-              color: 'var(--batione-primary-strong)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 700,
-            }}
+        <div ref={menuRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setMenuOuvert((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={menuOuvert}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', cursor: 'pointer' }}
           >
-            U
-          </span>
-          <ChevronDown size={14} color="var(--batione-ink-500)" aria-hidden />
-        </button>
+            <span
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: 'var(--batione-primary-soft)',
+                color: 'var(--batione-primary-strong)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+              }}
+            >
+              {initiale}
+            </span>
+            <ChevronDown size={14} color="var(--batione-ink-500)" aria-hidden />
+          </button>
+
+          {menuOuvert && (
+            <div
+              role="menu"
+              className="bo-card"
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 48,
+                width: 220,
+                padding: 'var(--batione-space-2)',
+                zIndex: 20,
+                boxShadow: 'var(--batione-shadow-md)',
+              }}
+            >
+              <div style={{ padding: 'var(--batione-space-3)', borderBottom: '1px solid var(--batione-ink-100)' }}>
+                <p style={{ margin: 0, fontWeight: 600, fontSize: 'var(--batione-font-size-sm)' }}>
+                  {moi ? `${moi.prenom} ${moi.nom}` : '…'}
+                </p>
+                <p style={{ margin: '2px 0 0', fontSize: 'var(--batione-font-size-xs)', color: 'var(--batione-ink-500)' }}>
+                  {moi?.role ?? ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="menuitem"
+                disabled
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--batione-space-2)',
+                  width: '100%',
+                  padding: 'var(--batione-space-3)',
+                  background: 'none',
+                  border: 'none',
+                  textAlign: 'left',
+                  color: 'var(--batione-ink-300)',
+                  fontSize: 'var(--batione-font-size-sm)',
+                  cursor: 'not-allowed',
+                }}
+              >
+                <User size={16} aria-hidden />
+                Mon profil
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={seDeconnecter}
+                disabled={deconnexionEnCours}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--batione-space-2)',
+                  width: '100%',
+                  padding: 'var(--batione-space-3)',
+                  background: 'none',
+                  border: 'none',
+                  textAlign: 'left',
+                  color: 'var(--batione-danger)',
+                  fontSize: 'var(--batione-font-size-sm)',
+                  fontWeight: 600,
+                  cursor: deconnexionEnCours ? 'wait' : 'pointer',
+                }}
+              >
+                <LogOut size={16} aria-hidden />
+                {deconnexionEnCours ? 'Déconnexion…' : 'Déconnexion'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

@@ -6,10 +6,11 @@
  */
 
 :root {
-  /* Couleurs de marque */
-  --batione-primary: #d97706; /* Amber Construction Gold */
-  --batione-primary-strong: #b45309;
-  --batione-primary-soft: #fef3c7;
+  /* Couleurs de marque (harmonisées avec le logo officiel BatiOne) */
+  --batione-primary: #b0895d; /* Or architectural / Sand Bronze du logo officiel */
+  --batione-primary-strong: #8f6738; /* Bronze profond pour survol et contraste */
+  --batione-primary-soft: #f7f0e4; /* Voile crémeux subtil issu du papier de marque */
+  --batione-primary-light: #c59e70; /* Reflet or architectural */
 
   /* Neutres (Slate Navy) */
   --batione-ink-900: #0f172a;

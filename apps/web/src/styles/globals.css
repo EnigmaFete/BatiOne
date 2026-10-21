@@ -43,12 +43,23 @@ button {
 }
 
 .bo-btn:hover {
-  filter: brightness(0.95);
+  filter: brightness(0.96);
 }
 
 .bo-btn--primary {
   background: var(--batione-primary);
   color: white;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.bo-btn--primary:hover:not(:disabled) {
+  background: var(--batione-primary-strong);
+  filter: none;
+  box-shadow: 0 4px 12px rgba(176, 137, 93, 0.28);
+}
+
+.bo-btn--primary:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .bo-btn--secondary {
@@ -82,8 +93,9 @@ button {
 }
 
 .bo-input:focus {
-  outline: 2px solid var(--batione-primary);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--batione-primary);
+  box-shadow: 0 0 0 3px var(--batione-primary-soft);
 }
 
 .bo-label {

@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { RoleUtilisateur } from '@batione/database';
+import { CATEGORIES_DEPENSE_PAR_DEFAUT } from '@batione/shared-types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TenantPrismaService } from '../../common/prisma/tenant-prisma.service';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
@@ -54,6 +55,12 @@ export class OrganizationsService {
           password_hash: passwordHash,
           role: RoleUtilisateur.ORG_ADMIN,
         },
+      });
+
+      // Catégories de dépenses par défaut (PRODUCT_SPEC.md §6) — personnalisables ensuite,
+      // jamais figées, mais une entreprise ne doit pas démarrer avec une liste vide.
+      await tx.expenseCategory.createMany({
+        data: CATEGORIES_DEPENSE_PAR_DEFAUT.map((nom) => ({ organization_id: organization.id, nom })),
       });
 
       return { organization, user };

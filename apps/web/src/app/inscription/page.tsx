@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, ApiError, definirJetonAcces } from '@/lib/api';
+import { Logo } from '@/components/Logo';
 
 interface FormulaireInscription {
   nomSociete: string;
@@ -66,8 +67,11 @@ export default function PageInscription() {
       }}
     >
       <div className="bo-card" style={{ width: 480 }}>
-        <h1 style={{ fontSize: 'var(--batione-font-size-xl)', marginBottom: 4 }}>Créer votre espace BatiOne</h1>
-        <p style={{ color: 'var(--batione-ink-500)', marginTop: 0, marginBottom: 'var(--batione-space-5)' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'var(--batione-space-4)' }}>
+          <Logo size={64} />
+        </div>
+        <h1 style={{ fontSize: 'var(--batione-font-size-xl)', marginBottom: 4, textAlign: 'center' }}>Créer votre espace BatiOne</h1>
+        <p style={{ color: 'var(--batione-ink-500)', marginTop: 0, marginBottom: 'var(--batione-space-5)', textAlign: 'center' }}>
           Quelques informations sur votre entreprise pour démarrer.
         </p>
 
