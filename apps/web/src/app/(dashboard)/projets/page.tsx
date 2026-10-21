@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Search, Plus, FolderKanban } from 'lucide-react';
 import { StatutProjet, LIBELLE_TYPE_PROJET, type TypeProjet } from '@batione/shared-types';
 import { api } from '@/lib/api';
-import { useMoi } from '@/lib/useMoi';
+import { useAuth } from '@/lib/AuthContext';
 import { formatMAD, formatDateMA } from '@/lib/format';
 import { ProjectStatusBadge } from '@/components/ProjectStatusBadge';
 
@@ -29,7 +29,7 @@ interface ReponseListe {
 
 export default function PageProjets() {
   const router = useRouter();
-  const { moi, erreur: erreurAuth } = useMoi();
+  const { moi, erreur: erreurAuth } = useAuth();
   const [projets, setProjets] = useState<ProjetLigne[] | null>(null);
   const [recherche, setRecherche] = useState('');
   const [statut, setStatut] = useState<StatutProjet | ''>('');

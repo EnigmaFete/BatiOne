@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Calendar, User, Wallet } from 'lucide-react';
 import { StatutProjet, LIBELLE_TYPE_PROJET, type TypeProjet } from '@batione/shared-types';
 import { api, ApiError } from '@/lib/api';
-import { useMoi } from '@/lib/useMoi';
+import { useAuth } from '@/lib/AuthContext';
 import { formatMAD, formatDateMA } from '@/lib/format';
 import { ProjectStatusBadge } from '@/components/ProjectStatusBadge';
 
@@ -29,7 +29,7 @@ const ONGLETS = ['Aperçu', 'Financier', 'Tâches', 'Matériaux', 'Équipe', 'Ma
 export default function PageDetailProjet() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { moi, erreur: erreurAuth } = useMoi();
+  const { moi, erreur: erreurAuth } = useAuth();
   const [projet, setProjet] = useState<ProjetDetail | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 

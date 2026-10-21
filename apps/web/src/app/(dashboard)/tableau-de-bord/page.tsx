@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BarChart3, Wallet, PieChart, HardHat, Building2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useMoi } from '@/lib/useMoi';
+import { useAuth } from '@/lib/AuthContext';
 import { formatMAD } from '@/lib/format';
 import { KpiCard } from '@/components/KpiCard';
 import { OnboardingChecklist, type EtapeOnboarding } from '@/components/OnboardingChecklist';
@@ -22,7 +22,7 @@ const ETAPES_ONBOARDING: EtapeOnboarding[] = [
 ];
 
 export default function PageTableauDeBord() {
-  const { moi, erreur } = useMoi();
+  const { moi, erreur } = useAuth();
   const [nbProjetsActifs, setNbProjetsActifs] = useState<number | null>(null);
 
   useEffect(() => {

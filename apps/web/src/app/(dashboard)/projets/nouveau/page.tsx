@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { TypeProjet, LIBELLE_TYPE_PROJET } from '@batione/shared-types';
 import { api, ApiError } from '@/lib/api';
-import { useMoi } from '@/lib/useMoi';
+import { useAuth } from '@/lib/AuthContext';
 
 interface FormulaireProjet {
   nom: string;
@@ -30,7 +30,7 @@ const ETAT_INITIAL: FormulaireProjet = {
 
 export default function PageNouveauProjet() {
   const router = useRouter();
-  const { moi, erreur: erreurAuth } = useMoi();
+  const { moi, erreur: erreurAuth } = useAuth();
   const [valeurs, setValeurs] = useState(ETAT_INITIAL);
   const [erreur, setErreur] = useState<string | null>(null);
   const [chargement, setChargement] = useState(false);
