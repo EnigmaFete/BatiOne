@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: batione-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-batione}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-batione}
+    volumes:
+      - batione_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-batione}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: batione-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-batione}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-batione}?schema=public
+      API_PORT: 4001
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      TZ: Africa/Casablanca
+      DEFAULT_LOCALE: fr
+    command: sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma && node apps/api/dist/main.js"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      # Ces deux valeurs sont figées dans le build Next.js "standalone" (cf. commentaire dans
+      # apps/web/Dockerfile) : les changer ici, pas dans "environment:" ci-dessous.
+      args:
+        API_INTERNAL_HOST: api
+        API_PORT: 4001
+    container_name: batione-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      PORT: 4000
+      HOSTNAME: 0.0.0.0
+    ports:
+      - '127.0.0.1:4000:4000'
+
+volumes:
+  batione_postgres_data:

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, ApiError, definirJetonAcces, obtenirJetonAcces } from './api';
+import { api, ApiError } from './api';
 
 export interface Moi {
   id: string;
@@ -12,7 +12,12 @@ export interface Moi {
   organization: { id: string; nom: string; onboarding_complete: boolean };
 }
 
-/** Récupère l'utilisateur connecté, rafraîchit le jeton si besoin, redirige sinon vers /connexion. */
+/**
+ * Récupère l'utilisateur connecté. Le renouvellement du jeton (absent ou expiré) est entièrement
+ * géré par `api.ts` (401 -> rafraîchissement silencieux -> une seule nouvelle tentative) — ce hook
+ * ne redirige vers /connexion QUE si le rafraîchissement a réellement échoué (plus de session
+ * valide), jamais sur un simple jeton d'accès expiré en mémoire.
+ */
 export function useMoi() {
   const router = useRouter();
   const [moi, setMoi] = useState<Moi | null>(null);
@@ -21,29 +26,20 @@ export function useMoi() {
   useEffect(() => {
     let annule = false;
 
-    async function charger() {
-      if (!obtenirJetonAcces()) {
-        try {
-          const { accessToken } = await api.post<{ accessToken: string }>('/auth/rafraichir');
-          definirJetonAcces(accessToken);
-        } catch {
-          router.replace('/connexion');
-          return;
-        }
-      }
-      try {
-        const donnees = await api.get<Moi>('/auth/moi');
+    api
+      .get<Moi>('/auth/moi')
+      .then((donnees) => {
         if (!annule) setMoi(donnees);
-      } catch (err) {
+      })
+      .catch((err) => {
+        if (annule) return;
         if (err instanceof ApiError) {
           router.replace('/connexion');
-        } else if (!annule) {
+        } else {
           setErreur('Impossible de charger vos informations.');
         }
-      }
-    }
+      });
 
-    charger();
     return () => {
       annule = true;
     };
