@@ -5,3 +5,6 @@ export * from './envelope';
 export * from './project';
 export * from './client';
 export * from './finance';
+export * from './stock';
+export * from './equipment';
+export * from './rh';

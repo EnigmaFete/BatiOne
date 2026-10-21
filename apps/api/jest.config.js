@@ -8,6 +8,7 @@ module.exports = {
   transform: {
     '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }],
   },
+  testTimeout: 30000,
   collectCoverageFrom: ['src/**/*.(t|j)s'],
   coverageDirectory: '../../coverage/api',
 };

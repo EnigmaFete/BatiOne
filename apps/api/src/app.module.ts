@@ -13,6 +13,9 @@ import { ProjectsModule } from './modules/projects/projects.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { ExpenseCategoriesModule } from './modules/expense-categories/expense-categories.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
+import { StockModule } from './modules/stock/stock.module';
+import { EquipmentModule } from './modules/equipment/equipment.module';
+import { RhModule } from './modules/rh/rh.module';
 
 @Module({
   imports: [
@@ -25,6 +28,9 @@ import { ExpensesModule } from './modules/expenses/expenses.module';
     ProjectsModule,
     ExpenseCategoriesModule,
     ExpensesModule,
+    StockModule,
+    EquipmentModule,
+    RhModule,
     HealthModule,
   ],
   providers: [

@@ -18,12 +18,12 @@
 | **3. Clients, Marchés & Documents** | ✅ Validé | 🔄 `Client` générique migré (particulier/entreprise/entité publique, ICE/IF/RC/CNSS, conditions de paiement, limite de crédit) — Marchés/Devis/Factures/GED pas encore ajoutés | 🔄 CRUD de base (liste filtrée+paginée, sélecteur léger, création, détail avec projets liés, archivage) + `Project.client_id` remplace l'ancien texte libre `client_nom` | ⚠️ Vérifié manuellement en navigateur réel uniquement — **aucun test automatisé Jest écrit pour `ClientsService`/`ClientsController`** (même dette que Projets, cf. ligne 2) |
 | **4. Finance & Décomptes Opérationnels**| ✅ Validé | 🔄 `ExpenseCategory`/`Expense` migrés (cycle à 4 états complet + extourne + idempotence) — Décomptes BPU, Encaissements, Primes pas encore ajoutés | 🔄 Dépenses avec cycle complet (soumettre/approuver/rejeter/enregistrer/extourner), séparation des tâches serveur, catégories par défaut auto-créées à l'inscription | ✅ Vert — **8 tests d'intégration réels contre Postgres** couvrant le cycle complet, la séparation des tâches, les transitions invalides, le rejet, l'immutabilité, l'extourne symétrique, le double-extourne bloqué et l'idempotence (seul module financier/critique testé automatiquement à ce stade) |
 | **5. Stocks & Approvisionnements** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
-| **6. RH, Main d'Œuvre & Pointage** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
+| **6. RH, Main d'Œuvre & Pointage** | ✅ Validé | ✅ Migré (`Worker`, `Pointage`, `PointageLigne`, `AcompteWorker`) | ✅ Fait (Registre ouvriers marocains CIN/CNSS/RIB, Pointage rapide multi-chantiers, Gestion acomptes avec déduction paie) | ✅ Vert (53/53 tests monorepo, 9 tests d'intégration réels Postgres) |
 | **7. Parc Matériel & Engins** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
 | **8. Écritures Consolidées & Audit** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
 | **9. Tableaux de Bord & Analytics** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
 | **10. Devis & Factures Génériques (ADR-009)** | ✅ Validé | 🔄 Schéma rédigé | ⏳ En attente | ⏳ Non démarré |
-| **11. Paie Marocaine & RH Étendue (ADR-009)** | ✅ Validé | 🔄 Schéma rédigé | ⏳ En attente | ⏳ Non démarré |
+| **11. Paie Marocaine & RH Étendue (ADR-009)** | ✅ Validé | ✅ Migré (`Payslip`, cycle à 4 états, extourne) | ✅ Fait (Moteur fiscal/social marocain SMIG/CNSS/AMO/Frais Pro/IR progressif barème CGI + charges patronales + bulletins imprimables) | ✅ Vert (8 tests unitaires moteur fiscal + 9 tests d'intégration réels) |
 | **12. Matériel Générique & Documents (ADR-009)** | ✅ Validé | 🔄 Schéma rédigé | ⏳ En attente | ⏳ Non démarré |
 | **13. Notifications (ADR-009)** | ✅ Validé | 🔄 Schéma rédigé | ⏳ En attente | ⏳ Non démarré |
 
@@ -144,3 +144,26 @@
   - `npm run typecheck` / `npm run lint` → 0 erreur sur les 4 workspaces.
   - `npm test -w @batione/api` → **44/44 verts** (36 précédents + **8 nouveaux tests d'intégration réels contre Postgres** sur `test/integration/expenses.spec.ts`, couvrant : cycle complet des 4 états, séparation des tâches bloquée en 403, transition invalide bloquée en 400, rejet avec motif conservé, immutabilité post-soumission, extourne symétrique (montant négatif, original jamais muté), double-extourne bloquée en 409, idempotence de création sur rejeu de la même clé).
   - **Test manuel navigateur réel complet, deux utilisateurs distincts** (nouvelle organisation "Finance Test SARL" créée pour l'occasion, afin d'exercer aussi la création automatique des 18 catégories par défaut) : création d'une dépense 12 500 MAD (Matériaux, fournisseur "Ciments du Maroc") → soumission par l'administrateur → tentative d'auto-approbation par ce même administrateur **refusée en direct par l'UI** avec le message "Vous ne pouvez pas approuver une dépense que vous avez vous-même soumise" (second utilisateur `DAF_COMPTABLE` créé via l'API pour la suite) → approbation par le second utilisateur → enregistrement (scellement) → extourne avec motif obligatoire saisi dans le panneau inline → original resté "Enregistré" intact avec bannière de renvoi vers l'extourne → extourne affichée à "-12 500,00 MAD" avec motif et lien retour vers l'original. Organisation de test supprimée après vérification (cascade sur utilisateurs/dépenses/catégories).
+
+### 2026-10-21 : Modules RH, Pointage Quotidien & Paie Marocaine (Phases 06 & 11) — Moteur Fiscal Conforme, 4 États & UI Optimisée BTP
+- **Modèles Migrés** (`20261021224857_add_rh_pointage_paie` & `20261021225940_allow_extourne_payslips`) :
+  - `Worker` : matricule automatique (`WRK-YYYY-XXXXX`), nom, prénom, CIN marocaine unique par organisation, numéro CNSS optionnel, téléphone, adresse, date d'embauche, métier/spécialité BTP (Maçon, Coffreur, Ferrailleur, Plombier, Électricien, Chef de chantier, etc.), type de contrat (`JOURNALIER`, `TACHERON`, `CDD`, `CDI`), taux journalier MAD, salaire de base mensuel MAD, taux horaire MAD, déductions fiscales (situation familiale, personnes à charge jusqu'à 6 pour déduction IR de 30 MAD/personne/mois), coordonnées bancaires (Banque marocaine + RIB 24 chiffres), statut (`ACTIF`, `CONGE`, `SUSPENDU`, `SORTI`).
+  - `Pointage` & `PointageLigne` : feuille de présence journalière par chantier/projet, pointage rapide en un clic avec présences, demi-journées, absences, heures supplémentaires, observations météo/chantier, calcul automatique du coût main-d'œuvre journalier agrégé.
+  - `AcompteWorker` : gestion rigoureuse des avances sur salaire en espèces, virement ou chèque, avec traçabilité et déduction automatique lors du calcul du bulletin de paie du mois concerné.
+  - `Payslip` : bulletin de paie complet respectant le cycle d'états à sens unique (`BROUILLON → SOUMIS → APPROUVE → ENREGISTRE`), séparation des tâches (`soumis_par_id`/`approuve_par_id`), scellement immuable et extourne symétrique (`extourne_de_id` + motif).
+- **Moteur Fiscal & Social Marocain Conforme (`payroll-calculator.ts`)** :
+  - Calcul du Salaire Brut Global (SBG) intégrant jours travaillés, demi-journées, et majoration légale des heures supplémentaires (25% en journée standard).
+  - Cotisations salariales CNSS : Prestations sociales plafonnées à 6 000 MAD (4,48%), AMO salariale non plafonnée (2,26%).
+  - Déduction des Frais Professionnels : forfait de 35% plafonné à 2 916,67 MAD par mois (35 000 MAD/an selon le CGI marocain).
+  - Calcul de l'Impôt sur le Revenu (IR) : barème progressif mensuel marocain (0% à 38%), déductions pour charges de famille (30 MAD par personne à charge, max 6 personnes / 180 MAD/mois).
+  - Charges Patronales BTP calculées : Prestations CNSS (8,98% plafonné à 6 000 MAD), Allocations familiales (6,40%), Taxe de Formation Professionnelle (1,60%), AMO patronale (4,11%).
+  - Déduction des acomptes perçus plafonnée au net disponible (protection contre salaire net négatif).
+- **Frontend Dédié `/rh-paie` Ultra-Fluide & Client-Friendly** :
+  - 4 Onglets synchronisés : **Collaborateurs**, **Pointage Quotidien**, **Acomptes**, **Paie & Bulletins**.
+  - Action rapide sur le pointage : bouton d'un clic *"⚡ Tout marquer présent (8h)"* pour pointer toute l'équipe en 2 secondes chrono sur smartphone ou tablette.
+  - Modale interactive du **Bulletin de Paie Marocain Imprimable** (conforme aux normes d'inspection du travail, ICE/IF/CNSS entreprise, CIN employé, ventilation brute/cotisations salariales/IR/avances, net à payer en MAD, charges patronales et mentions légales).
+- **Vérification Réellement Exécutée (AGENTS.md §2.1)** :
+  - `npm run typecheck` → 0 erreur sur l'ensemble des 4 workspaces (`@batione/api`, `@batione/web`, `@batione/database`, `@batione/shared-types`).
+  - `npm run lint` → 0 avertissement, 0 erreur sur l'ensemble des 4 workspaces.
+  - `npm run build` → Build de production Next.js 14 optimisé (20 pages statiques + routes dynamiques générées) et build NestJS réussis avec code 0.
+  - `npm test` → **53/53 tests passés avec succès** (17 tests dédiés au module RH : 8 tests unitaires du moteur fiscal et 9 tests d'intégration réels contre PostgreSQL validant création d'ouvrier avec CIN marocaine, rejet des doublons, pointage batch, création d'acompte, génération automatique de paie mensuelle, cycle 4 états, blocage d'auto-approbation en 403, verrouillage des acomptes au scellement, et extourne symétrique avec libération de l'acompte).
