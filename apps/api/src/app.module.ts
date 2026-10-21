@@ -10,6 +10,7 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
 import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProjectsModule } from './modules/projects/projects.module';
+import { ClientsModule } from './modules/clients/clients.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
     AuthModule,
     OrganizationsModule,
     UsersModule,
+    ClientsModule,
     ProjectsModule,
     HealthModule,
   ],

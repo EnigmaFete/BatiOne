@@ -7,6 +7,11 @@ import { ListProjectsQueryDto } from './dto/list-projects-query.dto';
 
 const TENTATIVES_CODE_MAX = 3;
 
+const INCLUSION_STANDARD = {
+  responsable: { select: { id: true, nom: true, prenom: true } },
+  client: { select: { id: true, nom: true, type: true } },
+} satisfies Prisma.ProjectInclude;
+
 @Injectable()
 export class ProjectsService {
   constructor(private readonly tenantPrisma: TenantPrismaService) {}
@@ -24,7 +29,7 @@ export class ProjectsService {
             OR: [
               { nom: { contains: query.recherche, mode: 'insensitive' } },
               { code: { contains: query.recherche, mode: 'insensitive' } },
-              { client_nom: { contains: query.recherche, mode: 'insensitive' } },
+              { client: { nom: { contains: query.recherche, mode: 'insensitive' } } },
             ],
           }
         : {}),
@@ -33,7 +38,7 @@ export class ProjectsService {
     const [projets, total] = await Promise.all([
       this.tenantPrisma.db.project.findMany({
         where,
-        include: { responsable: { select: { id: true, nom: true, prenom: true } } },
+        include: INCLUSION_STANDARD,
         orderBy: { created_at: 'desc' },
         skip: (page - 1) * limite,
         take: limite,
@@ -50,7 +55,7 @@ export class ProjectsService {
   async obtenir(id: string) {
     const projet = await this.tenantPrisma.db.project.findFirst({
       where: { id, deleted_at: null },
-      include: { responsable: { select: { id: true, nom: true, prenom: true } } },
+      include: INCLUSION_STANDARD,
     });
     if (!projet) {
       throw new NotFoundException({ code: 'RESSOURCE_INTROUVABLE', message: 'Projet introuvable.' });
@@ -68,7 +73,7 @@ export class ProjectsService {
             code,
             nom: dto.nom,
             type: dto.type,
-            client_nom: dto.clientNom,
+            client_id: dto.clientId,
             responsable_id: dto.responsableId,
             budget: dto.budget ?? 0,
             date_debut: dto.dateDebut,
@@ -77,7 +82,7 @@ export class ProjectsService {
             created_by: userId,
             updated_by: userId,
           },
-          include: { responsable: { select: { id: true, nom: true, prenom: true } } },
+          include: INCLUSION_STANDARD,
         });
       } catch (error) {
         // P2002 = violation de contrainte unique (organization_id, code) : collision rare sur
@@ -99,7 +104,7 @@ export class ProjectsService {
         nom: dto.nom,
         type: dto.type,
         statut: dto.statut,
-        client_nom: dto.clientNom,
+        client_id: dto.clientId,
         responsable_id: dto.responsableId,
         budget: dto.budget,
         date_debut: dto.dateDebut,
@@ -108,7 +113,7 @@ export class ProjectsService {
         description: dto.description,
         updated_by: userId,
       },
-      include: { responsable: { select: { id: true, nom: true, prenom: true } } },
+      include: INCLUSION_STANDARD,
     });
   }
 

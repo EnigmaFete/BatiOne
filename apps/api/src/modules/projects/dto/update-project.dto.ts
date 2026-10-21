@@ -16,8 +16,8 @@ export class UpdateProjectDto {
   statut?: StatutProjet;
 
   @IsOptional()
-  @IsString()
-  clientNom?: string;
+  @IsUUID()
+  clientId?: string;
 
   @IsOptional()
   @IsUUID()

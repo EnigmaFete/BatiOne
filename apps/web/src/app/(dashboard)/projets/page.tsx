@@ -16,7 +16,7 @@ interface ProjetLigne {
   nom: string;
   type: TypeProjet;
   statut: StatutProjet;
-  client_nom: string | null;
+  client: { id: string; nom: string } | null;
   budget: string;
   date_debut: string | null;
   responsable: { id: string; nom: string; prenom: string } | null;
@@ -155,7 +155,7 @@ export default function PageProjets() {
                   <td style={cellStyle}>{projet.code}</td>
                   <td style={{ ...cellStyle, fontWeight: 600 }}>{projet.nom}</td>
                   <td style={cellStyle}>{LIBELLE_TYPE_PROJET[projet.type]}</td>
-                  <td style={cellStyle}>{projet.client_nom ?? '—'}</td>
+                  <td style={cellStyle}>{projet.client?.nom ?? '—'}</td>
                   <td style={cellStyle}>
                     <ProjectStatusBadge statut={projet.statut} />
                   </td>

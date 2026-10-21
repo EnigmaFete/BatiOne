@@ -10,8 +10,8 @@ export class CreateProjectDto {
   type!: TypeProjet;
 
   @IsOptional()
-  @IsString()
-  clientNom?: string;
+  @IsUUID()
+  clientId?: string;
 
   @IsOptional()
   @IsUUID()

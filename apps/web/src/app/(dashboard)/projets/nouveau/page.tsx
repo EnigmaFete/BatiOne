@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -8,10 +8,15 @@ import { TypeProjet, LIBELLE_TYPE_PROJET } from '@batione/shared-types';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/AuthContext';
 
+interface ClientOption {
+  id: string;
+  nom: string;
+}
+
 interface FormulaireProjet {
   nom: string;
   type: TypeProjet;
-  clientNom: string;
+  clientId: string;
   budget: string;
   dateDebut: string;
   dateFinPrevue: string;
@@ -21,7 +26,7 @@ interface FormulaireProjet {
 const ETAT_INITIAL: FormulaireProjet = {
   nom: '',
   type: TypeProjet.CONSTRUCTION,
-  clientNom: '',
+  clientId: '',
   budget: '',
   dateDebut: '',
   dateFinPrevue: '',
@@ -32,8 +37,17 @@ export default function PageNouveauProjet() {
   const router = useRouter();
   const { moi, erreur: erreurAuth } = useAuth();
   const [valeurs, setValeurs] = useState(ETAT_INITIAL);
+  const [clients, setClients] = useState<ClientOption[] | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [chargement, setChargement] = useState(false);
+
+  useEffect(() => {
+    if (!moi) return;
+    api
+      .get<ClientOption[]>('/clients/selection')
+      .then(setClients)
+      .catch(() => setClients([]));
+  }, [moi]);
 
   function majChamp<K extends keyof FormulaireProjet>(champ: K, valeur: string) {
     setValeurs((v) => ({ ...v, [champ]: valeur }));
@@ -47,7 +61,7 @@ export default function PageNouveauProjet() {
       const projet = await api.post<{ id: string }>('/projets', {
         nom: valeurs.nom,
         type: valeurs.type,
-        clientNom: valeurs.clientNom || undefined,
+        clientId: valeurs.clientId || undefined,
         budget: valeurs.budget ? Number(valeurs.budget) : undefined,
         dateDebut: valeurs.dateDebut || undefined,
         dateFinPrevue: valeurs.dateFinPrevue || undefined,
@@ -120,16 +134,26 @@ export default function PageNouveauProjet() {
             </select>
           </div>
           <div className="bo-field" style={{ flex: 1 }}>
-            <label className="bo-label" htmlFor="clientNom">
+            <label className="bo-label" htmlFor="clientId">
               Client
             </label>
-            <input
-              id="clientNom"
-              className="bo-input"
-              placeholder="Nom du client"
-              value={valeurs.clientNom}
-              onChange={(e) => majChamp('clientNom', e.target.value)}
-            />
+            <select id="clientId" className="bo-input" value={valeurs.clientId} onChange={(e) => majChamp('clientId', e.target.value)}>
+              <option value="">Aucun client</option>
+              {clients?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nom}
+                </option>
+              ))}
+            </select>
+            {clients?.length === 0 && (
+              <p style={{ fontSize: 'var(--batione-font-size-xs)', color: 'var(--batione-ink-500)', marginTop: 4 }}>
+                Aucun client enregistré —{' '}
+                <Link href="/clients/nouveau" style={{ color: 'var(--batione-primary)', fontWeight: 600 }}>
+                  en créer un
+                </Link>
+                .
+              </p>
+            )}
           </div>
         </div>
 

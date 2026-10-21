@@ -92,6 +92,7 @@ model Organization {
 
   users    User[]
   projects Project[]
+  clients  Client[]
 
   @@map("organizations")
 }
@@ -156,7 +157,7 @@ model Project {
   nom             String
   type            TypeProjet    @default(AUTRE)
   statut          StatutProjet  @default(BROUILLON)
-  client_nom      String? // Texte libre en attendant le module Clients (Phase 03) — deviendra une relation FK
+  client_id       String?
   responsable_id  String?
   budget          Decimal       @default(0.00) @db.Decimal(14, 2)
   date_debut      DateTime?     @db.Date
@@ -171,9 +172,60 @@ model Project {
 
   organization    Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   responsable     User?         @relation("ResponsableProjet", fields: [responsable_id], references: [id])
+  client          Client?       @relation(fields: [client_id], references: [id])
 
   @@unique([organization_id, code])
   @@index([organization_id, statut])
   @@index([organization_id, deleted_at])
   @@map("projects")
+}
+
+// -------------------------------------------------------------
+// MODULE 3 : CLIENTS (Phase 03)
+// -------------------------------------------------------------
+
+enum TypeClient {
+  PARTICULIER
+  ENTREPRISE
+  ENTITE_PUBLIQUE
+}
+
+enum ConditionsPaiement {
+  COMPTANT
+  A_15_JOURS
+  A_30_JOURS
+  A_60_JOURS
+  A_90_JOURS
+}
+
+model Client {
+  id                  String             @id @default(uuid())
+  organization_id     String
+  nom                 String
+  type                TypeClient         @default(ENTREPRISE)
+  personne_contact    String?
+  telephone           String?
+  whatsapp            String?
+  email               String?
+  adresse             String?
+  ville               String?
+  region              String?
+  ice                 String?
+  if_num              String?
+  rc                  String?
+  cnss                String?
+  conditions_paiement ConditionsPaiement @default(A_30_JOURS)
+  limite_credit       Decimal            @default(0.00) @db.Decimal(14, 2)
+  notes               String?            @db.Text
+  created_by          String?
+  updated_by          String?
+  created_at          DateTime           @default(now())
+  updated_at          DateTime           @updatedAt
+  deleted_at          DateTime?
+
+  organization        Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  projects             Project[]
+
+  @@index([organization_id, deleted_at])
+  @@map("clients")
 }

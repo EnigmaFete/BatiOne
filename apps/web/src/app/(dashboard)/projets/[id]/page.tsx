@@ -16,7 +16,7 @@ interface ProjetDetail {
   nom: string;
   type: TypeProjet;
   statut: StatutProjet;
-  client_nom: string | null;
+  client: { id: string; nom: string } | null;
   budget: string;
   date_debut: string | null;
   date_fin_prevue: string | null;
@@ -102,7 +102,14 @@ export default function PageDetailProjet() {
           </div>
           <p style={{ color: 'var(--batione-ink-500)', margin: '4px 0 0' }}>
             {projet.code} · {LIBELLE_TYPE_PROJET[projet.type]}
-            {projet.client_nom ? ` · ${projet.client_nom}` : ''}
+            {projet.client && (
+              <>
+                {' · '}
+                <Link href={`/clients/${projet.client.id}`} style={{ color: 'var(--batione-primary)' }}>
+                  {projet.client.nom}
+                </Link>
+              </>
+            )}
           </p>
         </div>
       </div>
