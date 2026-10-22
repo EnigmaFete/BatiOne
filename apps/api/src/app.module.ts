@@ -16,6 +16,7 @@ import { ExpensesModule } from './modules/expenses/expenses.module';
 import { StockModule } from './modules/stock/stock.module';
 import { EquipmentModule } from './modules/equipment/equipment.module';
 import { RhModule } from './modules/rh/rh.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { RhModule } from './modules/rh/rh.module';
     StockModule,
     EquipmentModule,
     RhModule,
+    ReportsModule,
     HealthModule,
   ],
   providers: [

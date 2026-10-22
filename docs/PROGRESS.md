@@ -21,7 +21,7 @@
 | **6. RH, Main d'Œuvre & Pointage** | ✅ Validé | ✅ Migré (`Worker`, `Pointage`, `PointageLigne`, `AcompteWorker`) | ✅ Fait (Registre ouvriers marocains CIN/CNSS/RIB, Pointage rapide multi-chantiers, Gestion acomptes avec déduction paie) | ✅ Vert (53/53 tests monorepo, 9 tests d'intégration réels Postgres) |
 | **7. Parc Matériel & Engins** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
 | **8. Écritures Consolidées & Audit** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
-| **9. Tableaux de Bord & Analytics** | ✅ Validé | ✅ Validé | ⏳ En attente | ⏳ Non démarré |
+| **9. Tableaux de Bord & Analytics** | ✅ Validé | ✅ Validé | ✅ Fait (Synthèse analytique multi-modules chantiers, finances, RH/paie, stocks, matériel, filtres période et projet, export impression) | ✅ Vert (55/55 tests monorepo, suite d'intégration dédiée `reports.spec.ts`) |
 | **10. Devis & Factures Génériques (ADR-009)** | ✅ Validé | 🔄 Schéma rédigé | ⏳ En attente | ⏳ Non démarré |
 | **11. Paie Marocaine & RH Étendue (ADR-009)** | ✅ Validé | ✅ Migré (`Payslip`, cycle à 4 états, extourne) | ✅ Fait (Moteur fiscal/social marocain SMIG/CNSS/AMO/Frais Pro/IR progressif barème CGI + charges patronales + bulletins imprimables) | ✅ Vert (8 tests unitaires moteur fiscal + 9 tests d'intégration réels) |
 | **12. Matériel Générique & Documents (ADR-009)** | ✅ Validé | 🔄 Schéma rédigé | ⏳ En attente | ⏳ Non démarré |
@@ -167,3 +167,23 @@
   - `npm run lint` → 0 avertissement, 0 erreur sur l'ensemble des 4 workspaces.
   - `npm run build` → Build de production Next.js 14 optimisé (20 pages statiques + routes dynamiques générées) et build NestJS réussis avec code 0.
   - `npm test` → **53/53 tests passés avec succès** (17 tests dédiés au module RH : 8 tests unitaires du moteur fiscal et 9 tests d'intégration réels contre PostgreSQL validant création d'ouvrier avec CIN marocaine, rejet des doublons, pointage batch, création d'acompte, génération automatique de paie mensuelle, cycle 4 états, blocage d'auto-approbation en 403, verrouillage des acomptes au scellement, et extourne symétrique avec libération de l'acompte).
+
+### 2026-10-22 : Module Rapports & Analyses Opérationnelles (Phase 09) — Tableau de Bord Analytique Consolidé & Export
+- **Backend `ReportsModule` (`ReportsService`, `ReportsController`)** :
+  - Endpoint `GET /api/v1/rapports/synthese?periode=...&project_id=...` avec permissions RBAC adaptées (Direction, Comptabilité, Conduite de travaux, RH).
+  - Agrégations SQL/Prisma en direct :
+    - **Chantiers** : Total chantiers actifs, budget global engagé, consommation budgétaire réelle (Dépenses / Budget en %).
+    - **Finance & Dépenses** : Dépenses scellées (`ENREGISTRE`) vs en cours d'approbation (`SOUMIS`/`APPROUVE`), total engagé, répartition par catégorie avec pourcentages et palette de couleurs.
+    - **RH & Masse Salariale** : Effectif actif ventilation CDI/CDD (permanents) vs Journaliers/Tâcherons, masse salariale brute (SBG), salaires nets versés, cotisations patronales (CNSS, AMO, TFP), coût cumulé des pointages de chantier réels, acomptes totaux et en attente de déduction.
+    - **Stocks** : Valorisation financière totale du stock en MAD (`quantite_disponible × prix_unitaire`), nombre de références, articles en rupture totale et sous seuil d'alerte.
+    - **Matériel** : Nombre total d'engins, engins affectés sur chantiers (`StatutEquipement.AFFECTE`), en maintenance (`MAINTENANCE`), valeur du parc et taux d'utilisation.
+  - Filtres temporels automatiques : Mois en cours, Trimestre, Année en cours, Tout l'historique, avec filtrage optionnel par chantier spécifique.
+- **Frontend Dédié `/rapports`** :
+  - 4 Onglets interactifs : **Synthèse Générale**, **Dépenses & Budgets**, **RH & Masse Salariale**, **Stocks & Matériel**.
+  - Barres de progression visuelles et indicateurs de performance (KPI Cards).
+  - Bouton d'impression directe optimisé (`window.print()`) pour générer une édition papier / PDF pour la direction et les partenaires bancaires.
+- **Vérification Réellement Exécutée (AGENTS.md §2.1)** :
+  - `npm test -w @batione/api -- test/integration/reports.spec.ts` → **2/2 tests passés avec succès** (vérification des calculs agrégés et de l'isolation multi-tenant stricte).
+  - `npm test` → **55/55 tests verts** sur l'ensemble du monorepo.
+  - `npm run typecheck` & `npm run lint` → 0 erreur, 0 avertissement.
+  - Route `/rapports` testée et fonctionnelle avec code HTTP 200.
